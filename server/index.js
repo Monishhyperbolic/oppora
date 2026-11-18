@@ -100,7 +100,7 @@ function normalize(raw) {
 }
 
 function reportSent(report) {
-  const candidates = [report, report?.summary, report?.totals, report?.analytics, report?.stats]
+  const candidates = [report?.funnel, report?.summary, report?.totals, report?.analytics, report?.stats, report]
   for (const item of candidates) {
     const value = number(item, 'sent', 'emails_sent', 'total_sent')
     if (value) return value
@@ -117,30 +117,33 @@ function previousCalendarDay() {
 async function dashboardHandler(_req, res) {
   if (!process.env.OPPORA_API_KEY) return res.json({ ...sample, mode: 'preview' })
   try {
-    const [dashboard, campaignAnalytics, funnel, health] = await Promise.all([
-      mcpCall('get_dashboard_analytics'), mcpCall('get_campaign_analytics'), mcpCall('get_pipeline_funnel'), mcpCall('get_email_account_health'),
+    const [dashboard, campaignAnalytics, funnel, health, campaignList] = await Promise.all([
+      mcpCall('get_dashboard_analytics'),
+      mcpCall('get_campaign_analytics'),
+      mcpCall('get_pipeline_funnel'),
+      mcpCall('get_email_account_health'),
+      mcpCall('list_campaigns').catch(() => null),
     ])
-    const campaignRows = list(campaignAnalytics, 'campaigns', 'data', 'items').length
-      ? list(campaignAnalytics, 'campaigns', 'data', 'items')
-      : list(dashboard, 'top_campaigns')
+    const campaignRowsById = new Map()
+    for (const campaign of [
+      ...list(campaignList, 'campaigns', 'data', 'items'),
+      ...list(campaignAnalytics, 'campaigns', 'data', 'items'),
+      ...list(dashboard, 'top_campaigns'),
+    ]) {
+      const id = campaign.id || campaign.campaign_id
+      if (id) campaignRowsById.set(String(id), campaign)
+    }
+    const campaignRows = [...campaignRowsById.values()]
     const day = previousCalendarDay()
-    const reportDiagnostics = {}
     const reports = await Promise.all(campaignRows.map(async (campaign) => {
       const id = campaign.id || campaign.campaign_id
       if (!id) return [id, null]
       try {
         const report = await mcpCall('get_campaign_report', { campaign_id: id, start_date: day, end_date: day })
-        reportDiagnostics[id] = {
-          keys: Object.keys(report || {}),
-          nestedKeys: Object.fromEntries(Object.entries(report || {}).filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value)).map(([key, value]) => [key, Object.keys(value)])),
-        }
         return [id, reportSent(report)]
-      } catch (error) {
-        reportDiagnostics[id] = { error: error.message }
-        return [id, null]
-      }
+      } catch { return [id, null] }
     }))
-    res.json({ ...normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign: Object.fromEntries(reports) }), reportDiagnostics, mode: 'live' })
+    res.json({ ...normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign: Object.fromEntries(reports) }), mode: 'live' })
   } catch (error) { res.status(502).json({ error: error.message }) }
 }
 
