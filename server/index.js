@@ -112,8 +112,14 @@ async function dashboardHandler(_req, res) {
     ])
     const diagnostics = {
       dashboardKeys: Object.keys(dashboard || {}),
+      dashboardOverviewKeys: Object.keys(dashboard?.overview || {}),
+      dashboardEmailMetricsKeys: Object.keys(dashboard?.email_metrics || {}),
+      dashboardLinkedinKeys: Object.keys(dashboard?.linkedin || {}),
+      dashboardTopCampaignKeys: Array.isArray(dashboard?.top_campaigns) ? (Object.keys(dashboard.top_campaigns[0] || {})) : [],
       campaignKeys: Object.keys(campaignAnalytics || {}),
+      campaignError: campaignAnalytics?.error || null,
       funnelKeys: Object.keys(funnel || {}),
+      funnelNestedKeys: Object.keys(funnel?.funnel || {}),
       healthKeys: Object.keys(health || {}),
     }
     const campaignRows = list(campaignAnalytics, 'campaigns', 'data', 'items')
