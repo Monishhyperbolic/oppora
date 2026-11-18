@@ -18,7 +18,22 @@ function App() {
   const [data, setData] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(''), [exporting, setExporting] = useState(false)
   const [range, setRange] = useState('All time')
   const dashboard = useRef(null)
-  const load = async () => { setLoading(true); setError(''); try { const res = await fetch('/api/dashboard'); const body = await res.json(); if (!res.ok) throw new Error(body.error || 'Could not load Oppora data'); setData(body) } catch (e) { setError(e.message) } finally { setLoading(false) } }
+  const load = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/dashboard')
+      const text = await res.text()
+      let body
+      try { body = JSON.parse(text) } catch { throw new Error(`Could not parse dashboard response (${res.status})`) }
+      if (!res.ok) throw new Error(body.error || 'Could not load Oppora data')
+      setData(body)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
   useEffect(() => { load() }, [])
   const rates = useMemo(() => data ? { open: pct(data.totals.opened, data.totals.sent), reply: pct(data.totals.replied, data.totals.sent), bounce: pct(data.totals.bounced, data.totals.sent), interest: pct(data.totals.interested, data.totals.replied) } : {}, [data])
   const exportDashboard = async (kind) => {

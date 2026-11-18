@@ -40,11 +40,32 @@ async function mcpCall(name, args = {}) {
   })
   if (!response.ok) throw new Error(`Oppora API returned ${response.status}`)
   const body = await response.text()
-  const json = JSON.parse(body.replace(/^data:\s*/m, ''))
+  const json = parseRpcResponse(body)
   if (json.error) throw new Error(json.error.message)
   const content = json.result?.content || []
   const text = content.map((item) => item.text || '').join('\n')
   try { return JSON.parse(text) } catch { return json.result?.structuredContent || {} }
+}
+
+function parseRpcResponse(body) {
+  const candidates = [body.trim()]
+
+  for (const block of body.split(/\r?\n\r?\n/)) {
+    const dataLines = block
+      .split(/\r?\n/)
+      .filter((line) => /^data:/i.test(line.trim()))
+      .map((line) => line.trim().replace(/^data:\s*/i, ''))
+    if (dataLines.length) candidates.push(dataLines.join('\n'))
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate)
+      if (parsed && typeof parsed === 'object') return parsed
+    } catch {}
+  }
+
+  throw new Error('Oppora API returned an invalid MCP response')
 }
 
 function number(obj, ...keys) { for (const key of keys) if (Number.isFinite(Number(obj?.[key]))) return Number(obj[key]); return 0 }
