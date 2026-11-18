@@ -75,18 +75,28 @@ function number(obj, ...keys) { for (const key of keys) if (Number.isFinite(Numb
 function list(obj, ...keys) { for (const key of keys) if (Array.isArray(obj?.[key])) return obj[key]; return [] }
 function normalize(raw) {
   const dashboard = raw.dashboard || {}, campaignAnalytics = raw.campaignAnalytics || {}, funnel = raw.funnel || {}, health = raw.health || {}
-  const rawCampaigns = list(campaignAnalytics, 'campaigns', 'data', 'items')
+  const rawCampaigns = list(campaignAnalytics, 'campaigns', 'data', 'items').length
+    ? list(campaignAnalytics, 'campaigns', 'data', 'items')
+    : list(dashboard, 'top_campaigns')
   const yesterdayByCampaign = raw.yesterdayByCampaign || {}
   const campaigns = rawCampaigns.map((c) => {
     const id = c.id || c.campaign_id
-    return { name: c.name || c.campaign_name || 'Untitled campaign', id, status: c.status || 'unknown', sent: number(c, 'sent', 'emails_sent'), opened: number(c, 'opened', 'emails_opened'), clicked: number(c, 'clicked', 'emails_clicked'), replied: number(c, 'replied', 'replies'), bounced: number(c, 'bounced'), unsubscribed: number(c, 'unsubscribed'), emailsSentYesterday: yesterdayByCampaign[id] }
+    return { name: c.name || c.campaign_name || 'Untitled campaign', id, status: c.status || 'unknown', sent: number(c, 'sent', 'emails_sent', 'total_sent'), opened: number(c, 'opened', 'emails_opened', 'total_opened'), clicked: number(c, 'clicked', 'emails_clicked', 'total_clicked'), replied: number(c, 'replied', 'replies', 'total_replied'), bounced: number(c, 'bounced', 'total_bounced'), unsubscribed: number(c, 'unsubscribed', 'total_unsubscribed'), emailsSentYesterday: yesterdayByCampaign[id] }
   })
-  const totals = { sent: number(dashboard, 'sent', 'emails_sent'), opened: number(dashboard, 'opened', 'emails_opened'), clicked: number(dashboard, 'clicked', 'emails_clicked'), replied: number(dashboard, 'replied', 'replies'), interested: number(dashboard, 'interested'), bounced: number(dashboard, 'bounced'), unsubscribed: number(dashboard, 'unsubscribed'), campaigns: number(dashboard, 'campaigns', 'total_campaigns') || campaigns.length, active: number(dashboard, 'active_campaigns'), leads: number(dashboard, 'leads', 'total_leads'), connections: number(dashboard, 'linkedin_connections', 'connections') }
+  const overview = dashboard.overview || {}
+  const emailMetrics = dashboard.email_metrics || {}
+  const linkedin = dashboard.linkedin || {}
+  const funnelRows = funnel.funnel || {}
+  const totals = { sent: number(emailMetrics, 'total_sent', 'sent', 'emails_sent'), opened: number(emailMetrics, 'total_opened', 'opened', 'emails_opened'), clicked: number(emailMetrics, 'total_clicked', 'clicked', 'emails_clicked'), replied: number(emailMetrics, 'total_replied', 'replied', 'replies'), interested: number(emailMetrics, 'total_interested', 'interested'), bounced: number(emailMetrics, 'total_bounced', 'bounced'), unsubscribed: number(emailMetrics, 'total_unsubscribed', 'unsubscribed'), campaigns: number(overview, 'total_campaigns', 'campaigns') || campaigns.length, active: campaigns.filter((campaign) => campaign.status === 'active').length, leads: number(overview, 'total_leads', 'leads'), connections: number(linkedin, 'total_connected', 'linkedin_connections', 'connections') }
   const mailboxes = list(health, 'accounts', 'mailboxes', 'data').map((mailbox) => ({
     ...mailbox,
+    email: mailbox.email || mailbox.email_address || mailbox.address,
+    dailyLimit: mailbox.daily_limit ?? mailbox.dailyLimit,
+    dailySent: mailbox.daily_sent ?? mailbox.dailySent,
+    paused: mailbox.sending_paused ?? mailbox.paused,
     warmupReport: mailbox.warmup_report || mailbox.warmupReport || mailbox.health_report || mailbox.health || null,
   }))
-  return { source: 'Live Oppora API', updatedAt: new Date().toISOString(), totals, campaigns, mailboxes, funnel: { contacted: number(funnel, 'contacted', 'total_contacted'), opened: number(funnel, 'opened'), replied: number(funnel, 'replied'), interested: number(funnel, 'interested'), opportunities: number(funnel, 'opportunities'), won: number(funnel, 'won'), lost: number(funnel, 'lost') }, daily: list(campaignAnalytics, 'daily', 'daily_volume', 'daily_activity'), replyOutcomes: campaignAnalytics.reply_outcomes || campaignAnalytics.replyOutcomes || {} }
+  return { source: 'Live Oppora API', updatedAt: new Date().toISOString(), totals, campaigns, mailboxes, funnel: { contacted: number(funnelRows, 'open', 'contacted', 'total_contacted'), opened: number(funnelRows, 'opened'), replied: number(funnelRows, 'in_progress', 'replied'), interested: number(funnelRows, 'interested'), opportunities: number(funnelRows, 'in_progress', 'opportunities'), won: number(funnelRows, 'won'), lost: number(funnelRows, 'lost') }, daily: list(campaignAnalytics, 'daily', 'daily_volume', 'daily_activity'), replyOutcomes: campaignAnalytics.reply_outcomes || campaignAnalytics.replyOutcomes || {} }
 }
 
 function reportSent(report) {
@@ -110,26 +120,16 @@ async function dashboardHandler(_req, res) {
     const [dashboard, campaignAnalytics, funnel, health] = await Promise.all([
       mcpCall('get_dashboard_analytics'), mcpCall('get_campaign_analytics'), mcpCall('get_pipeline_funnel'), mcpCall('get_email_account_health'),
     ])
-    const diagnostics = {
-      dashboardKeys: Object.keys(dashboard || {}),
-      dashboardOverviewKeys: Object.keys(dashboard?.overview || {}),
-      dashboardEmailMetricsKeys: Object.keys(dashboard?.email_metrics || {}),
-      dashboardLinkedinKeys: Object.keys(dashboard?.linkedin || {}),
-      dashboardTopCampaignKeys: Array.isArray(dashboard?.top_campaigns) ? (Object.keys(dashboard.top_campaigns[0] || {})) : [],
-      campaignKeys: Object.keys(campaignAnalytics || {}),
-      campaignError: campaignAnalytics?.error || null,
-      funnelKeys: Object.keys(funnel || {}),
-      funnelNestedKeys: Object.keys(funnel?.funnel || {}),
-      healthKeys: Object.keys(health || {}),
-    }
-    const campaignRows = list(campaignAnalytics, 'campaigns', 'data', 'items')
+    const campaignRows = list(campaignAnalytics, 'campaigns', 'data', 'items').length
+      ? list(campaignAnalytics, 'campaigns', 'data', 'items')
+      : list(dashboard, 'top_campaigns')
     const day = previousCalendarDay()
     const reports = await Promise.all(campaignRows.map(async (campaign) => {
       const id = campaign.id || campaign.campaign_id
       if (!id) return [id, null]
       try { return [id, reportSent(await mcpCall('get_campaign_report', { campaign_id: id, start_date: day, end_date: day }))] } catch { return [id, null] }
     }))
-    res.json({ ...normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign: Object.fromEntries(reports) }), diagnostics, mode: 'live' })
+    res.json({ ...normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign: Object.fromEntries(reports) }), mode: 'live' })
   } catch (error) { res.status(502).json({ error: error.message }) }
 }
 
