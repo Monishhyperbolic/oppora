@@ -214,9 +214,9 @@ async function dashboardHandler(req, res) {
     const range = req.query.range || 'Last 7 days'
     const dates = rangeDates(range)
     const [dashboard, campaignAnalytics, funnel, health, campaignList] = await Promise.all([
-      mcpCall('get_dashboard_analytics', { start_date: dates.start, end_date: dates.end }),
-      mcpCall('get_campaign_analytics', { start_date: dates.start, end_date: dates.end }),
-      mcpCall('get_pipeline_funnel', { start_date: dates.start, end_date: dates.end }),
+      mcpCall('get_dashboard_analytics'),
+      mcpCall('get_campaign_analytics'),
+      mcpCall('get_pipeline_funnel'),
       mcpCall('get_email_account_health'),
       mcpCall('list_campaigns').catch(() => null),
     ])
@@ -252,6 +252,10 @@ async function dashboardHandler(req, res) {
         current.replied += row.replied
         dailyByDate.set(row.date, current)
       }
+    }
+    if (!dailyByDate.size) {
+      const rangeSent = reports.reduce((sum, [, sent]) => sum + Number(sent || 0), 0)
+      if (rangeSent > 0) dailyByDate.set(dates.end, { date: dates.end, sent: rangeSent, opened: 0, replied: 0 })
     }
     const normalized = normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign })
     for (const row of reportSeries(normalized.daily)) {
