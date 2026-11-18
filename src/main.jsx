@@ -100,8 +100,36 @@ function App() {
         <section className="panel delivery"><div className="panel-head"><div><h2>Deliverability</h2><p>Where every send lands</p></div></div><div className="donut"><ResponsiveContainer width="142" height="142"><PieChart><Pie data={delivery} dataKey="value" innerRadius={42} outerRadius={62} paddingAngle={4} stroke="none">{delivery.map((x, i) => <Cell key={x.name} fill={colors[i]}/>)}</Pie></PieChart></ResponsiveContainer><div className="donut-total"><strong>{rates.open}</strong><span>open rate</span></div></div><div className="breakdown">{delivery.map((x, i) => <div key={x.name}><i style={{background: colors[i]}}/><span>{x.name}</span><b>{pct(x.value, t.sent)}</b></div>)}</div></section>
       </div>
       <div className="grid lower-grid"><section className="panel campaign-panel"><div className="panel-head"><div><h2>Campaigns</h2><p>Campaign, ID, and current status</p></div><span className="campaign-count">{t.active} active</span></div><div className="table-wrap"><table><thead><tr><th>Campaign</th><th>ID</th><th>Status</th></tr></thead><tbody>{(data.campaigns || []).map(c => <tr key={c.id || c.name}><td><b>{c.name}</b></td><td className="campaign-id">#{c.id}</td><td><span className={`status ${c.status}`}>{c.status}</span></td></tr>)}</tbody></table></div></section>
-      <section className="panel health"><div className="panel-head"><div><h2>Sender health</h2><p>Emails sent yesterday</p></div><b className={mailboxSent / mailboxCapacity > .85 ? 'danger' : ''}>{count(mailboxSent)} / {count(mailboxCapacity)}</b></div><div className="capacity"><div style={{width: `${mailboxCapacity ? mailboxSent / mailboxCapacity * 100 : 0}%`}}/></div><div className="mailboxes">{(data.mailboxes || []).map(m => { const email = m.email || m.email_address || m.address; const limit = Number(m.dailyLimit || m.daily_limit || 0); const sent = Number(m.emailsSentYesterday ?? m.emails_sent_yesterday ?? m.dailySent ?? m.daily_sent ?? 0); return <div className="mailbox" key={email}><div><span className={m.paused || m.sending_paused ? 'alert-dot' : 'ok-dot'}/><b>{email}</b><small>{m.warmup ? 'Warmup on' : 'Warmup off'} · {m.connected ? 'Connected' : 'Disconnected'}</small></div><div className="usage"><span>Emails sent yesterday</span><b>{sent}/{limit}</b><div><i style={{width: `${limit ? sent / limit * 100 : 0}%`}}/></div></div></div>})}</div></section></div>
-      <footer>Last refreshed {new Date(data.updatedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} · {data.source}</footer>
+      <section className="panel health">
+        <div className="panel-head">
+          <div><h2>Sender health</h2><p>Daily send capacity and warm-up status</p></div>
+          <b className={mailboxCapacity && mailboxSent / mailboxCapacity > .85 ? 'danger' : ''}>{count(mailboxSent)} / {count(mailboxCapacity)}</b>
+        </div>
+        {mailboxCapacity > 0 && <div className="capacity"><div style={{width: `${Math.min(100, mailboxCapacity ? mailboxSent / mailboxCapacity * 100 : 0)}%`}}/></div>}
+        <div className="mailboxes">
+          {(data.mailboxes || []).length ? (data.mailboxes || []).map(m => {
+            const email = m.email || m.email_address || m.address || 'Unknown mailbox'
+            const limit = Number(m.dailyLimit ?? m.daily_limit ?? 0)
+            const sent = Number(m.emailsSentYesterday ?? m.emails_sent_yesterday ?? m.dailySent ?? m.daily_sent ?? 0)
+            const warmup = m.warmup ?? m.warmupEnabled ?? m.warmup_enabled ?? m.warm_up_enabled ?? m.warm_up ?? m.is_warmup_enabled
+            const warmupStatus = warmup === true || warmup === 1 || warmup === 'true' || warmup === 'enabled' ? 'Warm-up on' : 'Warm-up off'
+            const warmupReport = m.warmupReport
+            return <div className="mailbox" key={email}>
+              <div>
+                <span className={m.paused || m.sending_paused ? 'alert-dot' : 'ok-dot'} />
+                <b>{email}</b>
+                <small>{warmupStatus} · {m.connected === false ? 'Disconnected' : m.connected === true ? 'Connected' : 'Connection status unavailable'}</small>
+              </div>
+              <div className="usage">
+                <span>Sent yesterday</span>
+                <b>{sent}{limit ? ` / ${limit}` : ''}</b>
+                {limit > 0 && <div><i style={{width: `${Math.min(100, limit ? sent / limit * 100 : 0)}%`}}/></div>}
+                {warmupReport?.healthScore && <small>Health score {warmupReport.healthScore}</small>}
+              </div>
+            </div>
+          }) : <p className="warmup-empty">No sender accounts were returned by Oppora.</p>}
+        </div>
+      </section></div>
     </main></div>
 }
 createRoot(document.getElementById('root')).render(<App />)

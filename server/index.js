@@ -126,12 +126,19 @@ function normalize(raw) {
   const linkedin = dashboard.linkedin || {}
   const funnelRows = funnel.funnel || {}
   const totals = { sent: number(emailMetrics, 'total_sent', 'sent', 'emails_sent'), opened: number(emailMetrics, 'total_opened', 'opened', 'emails_opened'), clicked: number(emailMetrics, 'total_clicked', 'clicked', 'emails_clicked'), replied: number(emailMetrics, 'total_replied', 'replied', 'replies'), interested: number(emailMetrics, 'total_interested', 'interested'), bounced: number(emailMetrics, 'total_bounced', 'bounced'), unsubscribed: number(emailMetrics, 'total_unsubscribed', 'unsubscribed'), campaigns: number(overview, 'total_campaigns', 'campaigns') || campaigns.length, active: campaigns.filter((campaign) => campaign.status === 'active').length, leads: number(overview, 'total_leads', 'leads'), connections: number(linkedin, 'total_connected', 'linkedin_connections', 'connections') }
-  const mailboxes = list(health, 'accounts', 'mailboxes', 'data').map((mailbox) => ({
+  const mailboxRows = [
+    ...list(health, 'accounts', 'mailboxes', 'data', 'email_accounts', 'emailAccounts'),
+    ...list(health, 'items'),
+  ]
+  const mailboxes = mailboxRows.filter((mailbox, index, rows) => mailbox && rows.findIndex((row) => (row.email || row.email_address || row.address) === (mailbox.email || mailbox.email_address || mailbox.address)) === index).map((mailbox) => ({
     ...mailbox,
     email: mailbox.email || mailbox.email_address || mailbox.address,
-    dailyLimit: mailbox.daily_limit ?? mailbox.dailyLimit,
-    dailySent: mailbox.daily_sent ?? mailbox.dailySent,
-    paused: mailbox.sending_paused ?? mailbox.paused,
+    dailyLimit: mailbox.daily_limit ?? mailbox.dailyLimit ?? mailbox.daily_send_limit,
+    dailySent: mailbox.daily_sent ?? mailbox.dailySent ?? mailbox.emails_sent_today ?? mailbox.emailsSentToday,
+    emailsSentYesterday: mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ?? mailbox.daily_sent_yesterday,
+    paused: mailbox.sending_paused ?? mailbox.paused ?? mailbox.is_paused,
+    warmup: mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? (typeof mailbox.warmup === 'object' ? (mailbox.warmup.enabled ?? mailbox.warmup.active ?? mailbox.warmup.status) : mailbox.warmup) ?? mailbox.warm_up_enabled,
+    warmupEnabled: mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? mailbox.warm_up_enabled,
     warmupReport: mailbox.warmup_report || mailbox.warmupReport || mailbox.health_report || mailbox.health || null,
   }))
   return { source: 'Live Oppora API', updatedAt: new Date().toISOString(), totals, campaigns, mailboxes, funnel: { contacted: number(funnelRows, 'open', 'contacted', 'total_contacted'), opened: number(funnelRows, 'opened'), replied: number(funnelRows, 'in_progress', 'replied'), interested: number(funnelRows, 'interested'), opportunities: number(funnelRows, 'in_progress', 'opportunities'), won: number(funnelRows, 'won'), lost: number(funnelRows, 'lost') }, daily: list(campaignAnalytics, 'daily', 'daily_volume', 'daily_activity'), replyOutcomes: campaignAnalytics.reply_outcomes || campaignAnalytics.replyOutcomes || {} }
@@ -182,13 +189,13 @@ function reportSeries(report) {
       for (const item of value) visit(item)
       return
     }
-    const dateValue = value.date || value.day || value.created_at || value.report_date || value.reported_date || value.timestamp || value.start_date
+    const dateValue = value.date || value.day || value.created_at || value.report_date || value.reported_date || value.timestamp || value.start_date || value.activity_date || value.record_date
     if (dateValue) {
       rows.push({
         date: String(dateValue).slice(0, 10),
-        sent: number(value, 'sent', 'emails_sent', 'total_sent'),
-        opened: number(value, 'opened', 'emails_opened', 'total_opened'),
-        replied: number(value, 'replied', 'replies', 'total_replied'),
+        sent: number(value, 'sent', 'emails_sent', 'total_sent', 'send_count', 'emailsSent', 'email_sent', 'totalEmailsSent'),
+        opened: number(value, 'opened', 'emails_opened', 'total_opened', 'open_count', 'emailsOpened', 'totalEmailsOpened'),
+        replied: number(value, 'replied', 'replies', 'total_replied', 'reply_count', 'emailsReplied', 'totalReplies'),
       })
     }
     for (const child of Object.values(value)) visit(child)
