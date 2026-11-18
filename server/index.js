@@ -7,6 +7,18 @@ import { decode as decodeToon } from '@toon-format/toon'
 const app = express()
 app.use(cors())
 
+const campaignDirectory = [
+  ['Monish spiritual Uk', 15530, 'active'],
+  ['Monish -Uk- heritage', 15510, 'active'],
+  ['monish - california - Google map leads', 14625, 'active'],
+  ['Monish-spiritual living', 14115, 'active'],
+  ['Monish-heritage living', 14013, 'active'],
+  ['Rayyan - Alabama, USA - Spiritual Living', 13254, 'paused'],
+  ['Rayyan - Texas, USA - Spiritual Living', 12793, 'paused'],
+  ['Rayyan - Texas, USA - Heritage Living', 12782, 'paused'],
+  ['Rayyan - Alabama, USA - Heritage Living', 12766, 'paused'],
+]
+
 const sample = {
   source: 'Preview data from your 18 Nov 2026 daily report',
   updatedAt: '2026-11-18T07:47:00+05:30',
@@ -27,7 +39,18 @@ const sample = {
     ['exports@weaveandweavers.com', true, true, 30, 0, false], ['hello@weaveandweavers.com', true, true, 40, 40, false],
   ].map(([email, connected, warmup, dailyLimit, dailySent, paused]) => ({ email, connected, warmup, dailyLimit, dailySent, paused, warmupReport: email === 'reach@weaveandweavers.com' ? { healthScore: 97, risk: 'Excellent · low risk', spf: 'Pass', dkim: 'Pass', dmarc: 'Pass', blacklists: 'Clean · 2 checked', sent: 448, inbox: 427, replied: 128, rescued: 18, deliverability: 95, strategy: 'Progressive', day: 33, totalDays: 45 } : null })),
   funnel: { contacted: 400, opened: 96, replied: 5, interested: 0, opportunities: 0, won: 0, lost: 0 },
-  daily: [{ date: 'Nov 12', sent: 63, opened: 16, replied: 1 }, { date: 'Nov 13', sent: 72, opened: 18, replied: 0 }, { date: 'Nov 14', sent: 57, opened: 14, replied: 1 }, { date: 'Nov 15', sent: 44, opened: 11, replied: 0 }, { date: 'Nov 16', sent: 81, opened: 21, replied: 2 }, { date: 'Nov 17', sent: 83, opened: 16, replied: 1 }, { date: 'Nov 18', sent: 0, opened: 0, replied: 0 }],
+  daily: Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(2026, 9, 20 + index)
+    const sent = index === 29 ? 0 : 38 + ((index * 17) % 55)
+    const opened = sent ? Math.round(sent * (0.22 + (index % 4) * 0.025)) : 0
+    const replied = sent ? (index % 9 === 0 ? 2 : index % 5 === 0 ? 1 : 0) : 0
+    return {
+      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      sent,
+      opened,
+      replied,
+    }
+  }),
   replyOutcomes: { interested: 0, notInterested: 0, outOfOffice: 0, wrongPerson: 0, other: 5 },
 }
 
@@ -79,9 +102,24 @@ function normalize(raw) {
     ? list(campaignAnalytics, 'campaigns', 'data', 'items')
     : list(dashboard, 'top_campaigns')
   const yesterdayByCampaign = raw.yesterdayByCampaign || {}
-  const campaigns = rawCampaigns.map((c) => {
+  const campaignsById = new Map(rawCampaigns.map((c) => {
     const id = c.id || c.campaign_id
-    return { name: c.name || c.campaign_name || 'Untitled campaign', id, status: c.status || 'unknown', sent: number(c, 'sent', 'emails_sent', 'total_sent'), opened: number(c, 'opened', 'emails_opened', 'total_opened'), clicked: number(c, 'clicked', 'emails_clicked', 'total_clicked'), replied: number(c, 'replied', 'replies', 'total_replied'), bounced: number(c, 'bounced', 'total_bounced'), unsubscribed: number(c, 'unsubscribed', 'total_unsubscribed'), emailsSentYesterday: yesterdayByCampaign[id] }
+    return [String(id), c]
+  }).filter(([id]) => id && id !== 'undefined'))
+  const campaigns = campaignDirectory.map(([directoryName, id, directoryStatus]) => {
+    const c = campaignsById.get(String(id)) || {}
+    return {
+      name: c.name || c.campaign_name || directoryName,
+      id,
+      status: c.status || directoryStatus,
+      sent: number(c, 'sent', 'emails_sent', 'total_sent'),
+      opened: number(c, 'opened', 'emails_opened', 'total_opened'),
+      clicked: number(c, 'clicked', 'emails_clicked', 'total_clicked'),
+      replied: number(c, 'replied', 'replies', 'total_replied'),
+      bounced: number(c, 'bounced', 'total_bounced'),
+      unsubscribed: number(c, 'unsubscribed', 'total_unsubscribed'),
+      emailsSentYesterday: yesterdayByCampaign[id],
+    }
   })
   const overview = dashboard.overview || {}
   const emailMetrics = dashboard.email_metrics || {}
@@ -114,9 +152,56 @@ function previousCalendarDay() {
   return d.toISOString().slice(0, 10)
 }
 
-async function dashboardHandler(_req, res) {
-  if (!process.env.OPPORA_API_KEY) return res.json({ ...sample, mode: 'preview' })
+function rangeDates(range) {
+  const end = new Date()
+  end.setHours(0, 0, 0, 0)
+  const start = new Date(end)
+  if (range === 'Last 7 days') start.setDate(start.getDate() - 6)
+  else if (range === 'Last 30 days') start.setDate(start.getDate() - 29)
+  const iso = (date) => date.toISOString().slice(0, 10)
+  return {
+    start: range === 'All time' ? '2024-01-01' : iso(start),
+    end: iso(end),
+  }
+}
+
+function reportMetric(report, ...keys) {
+  const candidates = [report?.funnel, report?.summary, report?.totals, report?.analytics, report?.stats, report]
+  for (const item of candidates) {
+    const value = number(item, ...keys)
+    if (value) return value
+  }
+  return 0
+}
+
+function reportSeries(report) {
+  const rows = []
+  function visit(value) {
+    if (!value || typeof value !== 'object') return
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+    const dateValue = value.date || value.day || value.created_at || value.report_date
+    if (dateValue) {
+      rows.push({
+        date: String(dateValue).slice(0, 10),
+        sent: number(value, 'sent', 'emails_sent', 'total_sent'),
+        opened: number(value, 'opened', 'emails_opened', 'total_opened'),
+        replied: number(value, 'replied', 'replies', 'total_replied'),
+      })
+    }
+    for (const child of Object.values(value)) visit(child)
+  }
+  visit(report)
+  return rows
+}
+
+async function dashboardHandler(req, res) {
+  if (!process.env.OPPORA_API_KEY) return res.json({ ...sample, mode: 'preview', range: req.query.range || 'All time' })
   try {
+    const range = req.query.range || 'All time'
+    const dates = rangeDates(range)
     const [dashboard, campaignAnalytics, funnel, health, campaignList] = await Promise.all([
       mcpCall('get_dashboard_analytics'),
       mcpCall('get_campaign_analytics'),
@@ -134,16 +219,38 @@ async function dashboardHandler(_req, res) {
       if (id) campaignRowsById.set(String(id), campaign)
     }
     const campaignRows = [...campaignRowsById.values()]
-    const day = previousCalendarDay()
     const reports = await Promise.all(campaignRows.map(async (campaign) => {
       const id = campaign.id || campaign.campaign_id
-      if (!id) return [id, null]
+      if (!id) return [id, null, []]
       try {
-        const report = await mcpCall('get_campaign_report', { campaign_id: id, start_date: day, end_date: day })
-        return [id, reportSent(report)]
-      } catch { return [id, null] }
+        const report = await mcpCall('get_campaign_report', {
+          campaign_id: id,
+          start_date: range === 'All time' ? dates.start : dates.start,
+          end_date: dates.end,
+        })
+        return [id, reportSent(report), reportSeries(report)]
+      } catch { return [id, null, []] }
     }))
-    res.json({ ...normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign: Object.fromEntries(reports) }), mode: 'live' })
+    const yesterdayByCampaign = Object.fromEntries(reports.map(([id, sent]) => [id, sent]))
+    const dailyByDate = new Map()
+    for (const [, , series] of reports) {
+      for (const row of series) {
+        const current = dailyByDate.get(row.date) || { date: row.date, sent: 0, opened: 0, replied: 0 }
+        current.sent += row.sent
+        current.opened += row.opened
+        current.replied += row.replied
+        dailyByDate.set(row.date, current)
+      }
+    }
+    const formattedDaily = [...dailyByDate.values()]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((row) => ({
+        ...row,
+        date: new Date(`${row.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      }))
+    const normalized = normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign })
+    if (formattedDaily.length) normalized.daily = formattedDaily
+    res.json({ ...normalized, mode: 'live', range })
   } catch (error) { res.status(502).json({ error: error.message }) }
 }
 
