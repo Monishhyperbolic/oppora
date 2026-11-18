@@ -124,12 +124,23 @@ async function dashboardHandler(_req, res) {
       ? list(campaignAnalytics, 'campaigns', 'data', 'items')
       : list(dashboard, 'top_campaigns')
     const day = previousCalendarDay()
+    const reportDiagnostics = {}
     const reports = await Promise.all(campaignRows.map(async (campaign) => {
       const id = campaign.id || campaign.campaign_id
       if (!id) return [id, null]
-      try { return [id, reportSent(await mcpCall('get_campaign_report', { campaign_id: id, start_date: day, end_date: day }))] } catch { return [id, null] }
+      try {
+        const report = await mcpCall('get_campaign_report', { campaign_id: id, start_date: day, end_date: day })
+        reportDiagnostics[id] = {
+          keys: Object.keys(report || {}),
+          nestedKeys: Object.fromEntries(Object.entries(report || {}).filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value)).map(([key, value]) => [key, Object.keys(value)])),
+        }
+        return [id, reportSent(report)]
+      } catch (error) {
+        reportDiagnostics[id] = { error: error.message }
+        return [id, null]
+      }
     }))
-    res.json({ ...normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign: Object.fromEntries(reports) }), mode: 'live' })
+    res.json({ ...normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign: Object.fromEntries(reports) }), reportDiagnostics, mode: 'live' })
   } catch (error) { res.status(502).json({ error: error.message }) }
 }
 
