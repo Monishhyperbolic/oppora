@@ -2,6 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import { pathToFileURL } from 'node:url'
+import { decode as decodeToon } from '@toon-format/toon'
 
 const app = express()
 app.use(cors())
@@ -44,7 +45,9 @@ async function mcpCall(name, args = {}) {
   if (json.error) throw new Error(json.error.message)
   const content = json.result?.content || []
   const text = content.map((item) => item.text || '').join('\n')
-  try { return JSON.parse(text) } catch { return json.result?.structuredContent || {} }
+  try { return JSON.parse(text) } catch {}
+  try { return decodeToon(text) } catch {}
+  return json.result?.structuredContent || {}
 }
 
 function parseRpcResponse(body) {
