@@ -16,7 +16,7 @@ function Metric({ icon: Icon, label, value, detail, color = 'violet' }) {
 
 function App() {
   const [data, setData] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(''), [exporting, setExporting] = useState(false)
-  const [range, setRange] = useState('All time')
+  const [range, setRange] = useState('Last 7 days')
   const dashboard = useRef(null)
   const load = async (selectedRange = range) => {
     setLoading(true)
@@ -34,7 +34,7 @@ function App() {
       setLoading(false)
     }
   }
-  useEffect(() => { load('All time') }, [])
+  useEffect(() => { load('Last 7 days') }, [])
   const rates = useMemo(() => data ? { open: pct(data.totals.opened, data.totals.sent), reply: pct(data.totals.replied, data.totals.sent), bounce: pct(data.totals.bounced, data.totals.sent), interest: pct(data.totals.interested, data.totals.replied) } : {}, [data])
   const exportDashboard = async (kind) => {
     if (!dashboard.current) return
@@ -86,11 +86,7 @@ function App() {
   if (error) return <main className="error"><h1>Couldn’t connect to Oppora</h1><p>{error}</p><button onClick={load}>Try again</button><p className="hint">Add <code>OPPORA_API_KEY</code> to <code>.env</code>, then restart the server.</p></main>
   const t = data.totals, mailboxCapacity = (data.mailboxes || []).reduce((a, m) => a + Number(m.dailyLimit || m.daily_limit || 0), 0), mailboxSent = (data.mailboxes || []).reduce((a, m) => a + Number(m.emailsSentYesterday ?? m.emails_sent_yesterday ?? m.dailySent ?? m.daily_sent ?? 0), 0)
   const delivery = [{ name: 'Opened', value: t.opened }, { name: 'Not opened', value: Math.max(t.sent - t.opened - t.bounced, 0) }, { name: 'Bounced', value: t.bounced }]
-  const chartData = range === 'Last 7 days'
-    ? (data.daily || []).slice(-7)
-    : range === 'Last 30 days'
-      ? (data.daily || []).slice(-30)
-      : (data.daily || [])
+  const chartData = data.daily || []
   return <div className="app-shell"><header><div className="brand"><div className="brand-mark"><Sparkles size={18}/></div><span>oppora</span><em>Command Center</em></div><div className="header-actions"><span className={`live-dot ${data.mode}`}></span><span className="source">{data.mode === 'live' ? 'Live data' : 'Preview data'}</span><button className="icon-btn" title="Refresh data" onClick={load}><RefreshCw size={17}/></button><button className="export" onClick={() => exportDashboard('png')} disabled={exporting}><FileImage size={16}/> Image</button><button className="export primary" onClick={() => exportDashboard('pdf')} disabled={exporting}><FileText size={16}/> {exporting ? 'Exporting…' : 'PDF'}</button></div></header>
     <main ref={dashboard} className="dashboard"><div className="title-row"><div><div className="eyebrow">OUTREACH PERFORMANCE</div><h1>Marketing & revenue pulse</h1><p>Everything that matters, from deliverability to pipeline.</p></div><div className="date-control"><label htmlFor="report-range">{range}</label><select id="report-range" value={range} onChange={e => { setRange(e.target.value); load(e.target.value) }} aria-label="Date range"><option>All time</option><option>Last 30 days</option><option>Last 7 days</option></select></div></div>
       {data.mode === 'preview' && <div className="notice"><Sparkles size={16}/><span>Previewing the metrics in your daily email. Add an Oppora API key to unlock live campaign, pipeline, intent, and mailbox-health data.</span></div>}

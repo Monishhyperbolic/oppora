@@ -182,7 +182,7 @@ function reportSeries(report) {
       for (const item of value) visit(item)
       return
     }
-    const dateValue = value.date || value.day || value.created_at || value.report_date
+    const dateValue = value.date || value.day || value.created_at || value.report_date || value.reported_date || value.timestamp || value.start_date
     if (dateValue) {
       rows.push({
         date: String(dateValue).slice(0, 10),
@@ -198,9 +198,13 @@ function reportSeries(report) {
 }
 
 async function dashboardHandler(req, res) {
-  if (!process.env.OPPORA_API_KEY) return res.json({ ...sample, mode: 'preview', range: req.query.range || 'All time' })
+  if (!process.env.OPPORA_API_KEY) {
+    const range = req.query.range || 'Last 7 days'
+    const days = range === 'Last 7 days' ? 7 : range === 'Last 30 days' ? 30 : sample.daily.length
+    return res.json({ ...sample, daily: sample.daily.slice(-days), mode: 'preview', range })
+  }
   try {
-    const range = req.query.range || 'All time'
+    const range = req.query.range || 'Last 7 days'
     const dates = rangeDates(range)
     const [dashboard, campaignAnalytics, funnel, health, campaignList] = await Promise.all([
       mcpCall('get_dashboard_analytics'),
@@ -242,13 +246,38 @@ async function dashboardHandler(req, res) {
         dailyByDate.set(row.date, current)
       }
     }
-    const formattedDaily = [...dailyByDate.values()]
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map((row) => ({
-        ...row,
-        date: new Date(`${row.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      }))
     const normalized = normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign })
+    for (const row of reportSeries(normalized.daily)) {
+      const current = dailyByDate.get(row.date) || { date: row.date, sent: 0, opened: 0, replied: 0 }
+      current.sent += row.sent
+      current.opened += row.opened
+      current.replied += row.replied
+      dailyByDate.set(row.date, current)
+    }
+    let formattedDaily = [...dailyByDate.values()].sort((a, b) => a.date.localeCompare(b.date))
+
+    if (range !== 'All time') {
+      const byDate = new Map(formattedDaily.map((row) => [String(row.date).slice(0, 10), row]))
+      const complete = []
+      const start = new Date(`${dates.start}T12:00:00Z`)
+      const end = new Date(`${dates.end}T12:00:00Z`)
+      for (let day = new Date(start); day <= end; day.setUTCDate(day.getUTCDate() + 1)) {
+        const iso = day.toISOString().slice(0, 10)
+        const row = byDate.get(iso) || { date: iso, sent: 0, opened: 0, replied: 0 }
+        complete.push({
+          ...row,
+          date: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }),
+        })
+      }
+      formattedDaily = complete
+    } else {
+      formattedDaily = formattedDaily.map((row) => ({
+        ...row,
+        date: /^\d{4}-\d{2}-\d{2}/.test(row.date)
+          ? new Date(`${row.date.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+          : row.date,
+      }))
+    }
     if (formattedDaily.length) normalized.daily = formattedDaily
     res.json({ ...normalized, mode: 'live', range })
   } catch (error) { res.status(502).json({ error: error.message }) }
