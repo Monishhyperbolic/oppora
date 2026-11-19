@@ -96,6 +96,22 @@ function parseRpcResponse(body) {
 
 function number(obj, ...keys) { for (const key of keys) if (Number.isFinite(Number(obj?.[key]))) return Number(obj[key]); return 0 }
 function list(obj, ...keys) { for (const key of keys) if (Array.isArray(obj?.[key])) return obj[key]; return [] }
+
+function nestedNumber(obj, keys) {
+  if (!obj || typeof obj !== 'object') return 0
+  for (const key of keys) {
+    const value = obj[key]
+    if (Number.isFinite(Number(value))) return Number(value)
+  }
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === 'object') {
+      const nested = nestedNumber(value, keys)
+      if (nested) return nested
+    }
+  }
+  return 0
+}
+
 function normalize(raw) {
   const dashboard = raw.dashboard || {}, campaignAnalytics = raw.campaignAnalytics || {}, funnel = raw.funnel || {}, health = raw.health || {}
   const rawCampaigns = list(campaignAnalytics, 'campaigns', 'data', 'items').length
@@ -137,8 +153,8 @@ function normalize(raw) {
     email: mailbox.email || mailbox.email_address || mailbox.address,
     dailyLimit: mailbox.daily_limit ?? mailbox.dailyLimit ?? mailbox.daily_send_limit,
     dailySent: mailbox.daily_sent ?? mailbox.dailySent ?? mailbox.emails_sent_today ?? mailbox.emailsSentToday,
-    emailsSentYesterday: mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ?? mailbox.daily_sent_yesterday,
-    dailySentYesterday: mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday,
+    emailsSentYesterday: mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ?? mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? nestedNumber(mailbox, ['emails_sent_yesterday', 'emailsSentYesterday', 'daily_sent_yesterday', 'dailySentYesterday', 'sent_yesterday', 'sentYesterday']),
+    dailySentYesterday: mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ?? nestedNumber(mailbox, ['emails_sent_yesterday', 'emailsSentYesterday', 'daily_sent_yesterday', 'dailySentYesterday', 'sent_yesterday', 'sentYesterday']),
     paused: mailbox.sending_paused ?? mailbox.paused ?? mailbox.is_paused,
     warmup: mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? (typeof mailbox.warmup === 'object' ? (mailbox.warmup.enabled ?? mailbox.warmup.active ?? mailbox.warmup.status) : mailbox.warmup) ?? mailbox.warm_up_enabled,
     warmupEnabled: mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? mailbox.warm_up_enabled,
@@ -211,6 +227,9 @@ function reportSeries(report) {
       if (isoDate && !seen.has(isoDate)) {
         seen.add(isoDate)
         const candidates = [value, value.funnel, value.summary, value.totals, value.analytics, value.stats]
+        for (const nested of Object.values(value)) {
+          if (nested && typeof nested === 'object') candidates.push(nested)
+        }
         const metric = (...keys) => {
           for (const candidate of candidates) {
             const result = number(candidate, ...keys)
@@ -220,13 +239,13 @@ function reportSeries(report) {
         }
         rows.push({
           date: isoDate,
-          sent: metric('sent', 'emails_sent', 'total_sent', 'send_count', 'emailsSent', 'email_sent', 'totalEmailsSent'),
-          opened: metric('opened', 'emails_opened', 'total_opened', 'open_count', 'emailsOpened', 'totalEmailsOpened'),
-          replied: metric('replied', 'replies', 'total_replied', 'reply_count', 'emailsReplied', 'totalReplies'),
-          clicked: metric('clicked', 'emails_clicked', 'total_clicked', 'click_count', 'clicks', 'emailsClicked'),
-          bounced: metric('bounced', 'emails_bounced', 'total_bounced', 'bounce_count', 'bounces'),
+          sent: metric('sent', 'emails_sent', 'total_sent', 'send_count', 'emailsSent', 'email_sent', 'totalEmailsSent', 'sent_count', 'emailsSentCount'),
+          opened: metric('opened', 'emails_opened', 'total_opened', 'open_count', 'emailsOpened', 'totalEmailsOpened', 'unique_opens', 'unique_opened'),
+          replied: metric('replied', 'replies', 'total_replied', 'reply_count', 'emailsReplied', 'totalReplies', 'replies_count'),
+          clicked: metric('clicked', 'emails_clicked', 'total_clicked', 'click_count', 'clicks', 'emailsClicked', 'click_count'),
+          bounced: metric('bounced', 'emails_bounced', 'total_bounced', 'bounce_count', 'bounces', 'email_bounced'),
           unsubscribed: metric('unsubscribed', 'emails_unsubscribed', 'total_unsubscribed', 'unsubscribe_count', 'unsubscribes'),
-          interested: metric('interested', 'total_interested', 'positive_replies'),
+          interested: metric('interested', 'total_interested', 'positive_replies', 'interested_replies'),
         })
       }
     }
@@ -304,6 +323,19 @@ async function dashboardHandler(req, res) {
     }
     if (!dailyByDate.size) {
       for (const row of reportSeries(campaignAnalytics)) {
+        const current = dailyByDate.get(row.date) || { date: row.date, sent: 0, opened: 0, replied: 0, clicked: 0, bounced: 0, unsubscribed: 0, interested: 0 }
+        current.sent += row.sent
+        current.opened += row.opened
+        current.replied += row.replied
+        current.clicked += row.clicked
+        current.bounced += row.bounced
+        current.unsubscribed += row.unsubscribed
+        current.interested += row.interested
+        dailyByDate.set(row.date, current)
+      }
+    }
+    if (!dailyByDate.size) {
+      for (const row of reportSeries(dashboard)) {
         const current = dailyByDate.get(row.date) || { date: row.date, sent: 0, opened: 0, replied: 0, clicked: 0, bounced: 0, unsubscribed: 0, interested: 0 }
         current.sent += row.sent
         current.opened += row.opened
