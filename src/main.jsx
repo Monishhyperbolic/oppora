@@ -84,7 +84,11 @@ function App() {
   }
   if (loading) return <div className="loading"><LoaderCircle className="spin" /> Loading Oppora metrics…</div>
   if (error) return <main className="error"><h1>Couldn’t connect to Oppora</h1><p>{error}</p><button onClick={load}>Try again</button><p className="hint">Add <code>OPPORA_API_KEY</code> to <code>.env</code>, then restart the server.</p></main>
-  const t = data.totals, mailboxCapacity = (data.mailboxes || []).reduce((a, m) => a + Number(m.dailyLimit || m.daily_limit || 0), 0), mailboxSent = (data.mailboxes || []).reduce((a, m) => a + Number(m.emailsSentYesterday ?? m.emails_sent_yesterday ?? m.dailySent ?? m.daily_sent ?? 0), 0)
+  const t = data.totals, mailboxCapacity = (data.mailboxes || []).reduce((a, m) => a + Number(m.dailyLimit || m.daily_limit || 0), 0), mailboxSent = (data.mailboxes || []).reduce((a, m) => {
+    const today = m.dailySent ?? m.daily_sent ?? m.emailsSentToday ?? m.emails_sent_today
+    const sent = today ?? m.emailsSentYesterday ?? m.emails_sent_yesterday ?? 0
+    return a + Number(sent)
+  }, 0)
   const delivery = [{ name: 'Opened', value: t.opened }, { name: 'Not opened', value: Math.max(t.sent - t.opened - t.bounced, 0) }, { name: 'Bounced', value: t.bounced }]
   const chartData = data.daily || []
   const campaignChartData = (data.campaigns || []).filter(c => c.sent || c.opened || c.replied || c.clicked || c.bounced)
@@ -108,7 +112,7 @@ function App() {
         </section>
       <section className="panel health">
         <div className="panel-head">
-          <div><h2>Sender health</h2><p>Warm-up {count(data.warmup?.enabled)} / {count(data.warmup?.total)} enabled · Daily sent {count(mailboxSent)}</p></div>
+          <div><h2>Sender health</h2><p>Warm-up {count(data.warmup?.enabled)} / {count(data.warmup?.total)} enabled · Sent today {count(mailboxSent)}</p></div>
           <b className={mailboxCapacity && mailboxSent / mailboxCapacity > .85 ? 'danger' : ''}>{count(mailboxSent)} / {count(mailboxCapacity)} · {mailboxCapacity ? Math.round(mailboxSent / mailboxCapacity * 100) : 0}%</b>
         </div>
         {mailboxCapacity > 0 && <div className="capacity"><div style={{width: `${Math.min(100, mailboxCapacity ? mailboxSent / mailboxCapacity * 100 : 0)}%`}}/></div>}
@@ -116,7 +120,9 @@ function App() {
           {(data.mailboxes || []).length ? (data.mailboxes || []).map(m => {
             const email = m.email || m.email_address || m.address || 'Unknown mailbox'
             const limit = Number(m.dailyLimit ?? m.daily_limit ?? 0)
-            const sent = Number(m.emailsSentYesterday ?? m.emails_sent_yesterday ?? m.dailySent ?? m.daily_sent ?? 0)
+            const today = m.dailySent ?? m.daily_sent ?? m.emailsSentToday ?? m.emails_sent_today
+            const sent = Number(today ?? m.emailsSentYesterday ?? m.emails_sent_yesterday ?? 0)
+            const usagePct = limit ? Math.round(sent / limit * 100) : 0
             const warmup = m.warmup ?? m.warmupEnabled ?? m.warmup_enabled ?? m.warm_up_enabled ?? m.warm_up ?? m.is_warmup_enabled
             const warmupStatus = warmup === true || warmup === 1 || warmup === 'true' || warmup === 'enabled' ? 'Warm-up on' : 'Warm-up off'
             const warmupReport = m.warmupReport
@@ -127,10 +133,10 @@ function App() {
                 <small>{warmupStatus} · {m.connected === false ? 'Disconnected' : m.connected === true ? 'Connected' : 'Connection status unavailable'}</small>
               </div>
               <div className="usage">
-                <span>Sent yesterday</span>
+                <span>Sent today</span>
                 <b>{sent}{limit ? ` / ${limit}` : ''}</b>
                 {limit > 0 && <div><i style={{width: `${Math.min(100, limit ? sent / limit * 100 : 0)}%`}}/></div>}
-                {limit > 0 && <small>{m.dailyUsagePct ?? (limit ? Math.round(sent / limit * 100) : 0)}% of limit</small>}
+                {limit > 0 && <small>{usagePct}% of limit</small>}
                 {warmupReport?.healthScore && <small>Warm-up health {warmupReport.healthScore}/100</small>}
               </div>
             </div>

@@ -241,17 +241,23 @@ async function dashboardHandler(req, res) {
     const campaignRows = [...campaignRowsById.values()]
     const reports = await Promise.all(campaignRows.map(async (campaign) => {
       const id = campaign.id || campaign.campaign_id
-      if (!id) return [id, null, []]
+      if (!id) return [id, null, [], null, null]
       try {
         const report = await mcpCall('get_campaign_report', {
           campaign_id: id,
           start_date: range === 'All time' ? dates.start : dates.start,
           end_date: dates.end,
         })
-        return [id, reportSent(report), reportSeries(report), report]
-      } catch { return [id, null, [], null] }
+        const yesterday = previousCalendarDay()
+        const yesterdayReport = await mcpCall('get_campaign_report', {
+          campaign_id: id,
+          start_date: yesterday,
+          end_date: yesterday,
+        }).catch(() => null)
+        return [id, reportSent(report), reportSeries(report), report, reportSent(yesterdayReport)]
+      } catch { return [id, null, [], null, null] }
     }))
-    const yesterdayByCampaign = Object.fromEntries(reports.map(([id, sent]) => [id, sent]))
+    const yesterdayByCampaign = Object.fromEntries(reports.map(([id, , , , yesterdaySent]) => [id, yesterdaySent]))
     const campaignReports = Object.fromEntries(reports.filter(([, , , report]) => report).map(([id, , , report]) => [String(id), report]))
     const dailyByDate = new Map()
     for (const [, , series] of reports) {
