@@ -184,6 +184,23 @@ function collectSenderSentRows(value, rows = [], seen = new Set()) {
   return rows
 }
 
+function collectMailboxReferences(value, rows = [], seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return rows
+  seen.add(value)
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectMailboxReferences(item, rows, seen))
+    return rows
+  }
+  const email = senderEmail(value)
+  const id = senderId(value)
+  if (email || id) {
+    const duplicate = rows.find((row) => (email && row.email === email) || (id && row.id === id))
+    if (!duplicate) rows.push({ email, id })
+  }
+  for (const child of Object.values(value)) collectMailboxReferences(child, rows, seen)
+  return rows
+}
+
 function normalize(raw) {
   const dashboard = raw.dashboard || {}, campaignAnalytics = raw.campaignAnalytics || {}, funnel = raw.funnel || {}, health = raw.health || {}
   const yesterdayByMailbox = raw.yesterdayByMailbox || { byEmail: {}, byId: {} }
@@ -398,8 +415,9 @@ async function dashboardHandler(req, res) {
         }).catch(() => null)
         const yesterdaySeries = reportSeries(yesterdayReport)
         const yesterdayRow = yesterdaySeries.find((row) => row.date === yesterday)
-        return [id, reportSent(report), reportSeries(report), report, yesterdayRow?.sent ?? reportSent(yesterdayReport), collectSenderSentRows(yesterdayReport)]
-      } catch { return [id, null, [], null, null, []] }
+        const mailboxReferences = collectMailboxReferences({ campaign, report, yesterdayReport })
+        return [id, reportSent(report), reportSeries(report), report, yesterdayRow?.sent ?? reportSent(yesterdayReport), collectSenderSentRows(yesterdayReport), mailboxReferences]
+      } catch { return [id, null, [], null, null, [], []] }
     }))
     const yesterdayByCampaign = Object.fromEntries(reports.map(([id, , , , yesterdaySent]) => [id, yesterdaySent]))
     const yesterdayByMailbox = { byEmail: {}, byId: {} }
@@ -411,6 +429,22 @@ async function dashboardHandler(req, res) {
         }
         if (sender.id) {
           yesterdayByMailbox.byId[sender.id] = (yesterdayByMailbox.byId[sender.id] || 0) + sender.sent
+        }
+      }
+    }
+    for (const [id, , , , yesterdaySent, , mailboxReferences] of reports) {
+      if (!yesterdaySent) continue
+      const references = (mailboxReferences || []).filter((reference) => reference.email || reference.id)
+      if (references.length !== 1) continue
+      const reference = references[0]
+      if (reference.email) {
+        const email = reference.email.trim().toLowerCase()
+        if (!Object.prototype.hasOwnProperty.call(yesterdayByMailbox.byEmail, email)) {
+          yesterdayByMailbox.byEmail[email] = Number(yesterdaySent) || 0
+        }
+      } else if (reference.id) {
+        if (!Object.prototype.hasOwnProperty.call(yesterdayByMailbox.byId, reference.id)) {
+          yesterdayByMailbox.byId[reference.id] = Number(yesterdaySent) || 0
         }
       }
     }
