@@ -432,22 +432,6 @@ async function dashboardHandler(req, res) {
         }
       }
     }
-    for (const [id, , , , yesterdaySent, , mailboxReferences] of reports) {
-      if (!yesterdaySent) continue
-      const references = (mailboxReferences || []).filter((reference) => reference.email || reference.id)
-      if (references.length !== 1) continue
-      const reference = references[0]
-      if (reference.email) {
-        const email = reference.email.trim().toLowerCase()
-        if (!Object.prototype.hasOwnProperty.call(yesterdayByMailbox.byEmail, email)) {
-          yesterdayByMailbox.byEmail[email] = Number(yesterdaySent) || 0
-        }
-      } else if (reference.id) {
-        if (!Object.prototype.hasOwnProperty.call(yesterdayByMailbox.byId, reference.id)) {
-          yesterdayByMailbox.byId[reference.id] = Number(yesterdaySent) || 0
-        }
-      }
-    }
     const campaignReports = Object.fromEntries(reports.filter(([, , , report]) => report).map(([id, , , report]) => [String(id), report]))
     const dailyByDate = new Map()
     for (const [, , series] of reports) {
