@@ -160,16 +160,17 @@ function reportSent(report) {
 
 function previousCalendarDay() {
   const d = new Date()
-  d.setDate(d.getDate() - 1)
+  d.setUTCHours(0, 0, 0, 0)
+  d.setUTCDate(d.getUTCDate() - 1)
   return d.toISOString().slice(0, 10)
 }
 
 function rangeDates(range) {
   const end = new Date()
-  end.setHours(0, 0, 0, 0)
+  end.setUTCHours(0, 0, 0, 0)
   const start = new Date(end)
-  if (range === 'Last 7 days') start.setDate(start.getDate() - 6)
-  else if (range === 'Last 30 days') start.setDate(start.getDate() - 29)
+  if (range === 'Last 7 days') start.setUTCDate(start.getUTCDate() - 6)
+  else if (range === 'Last 30 days') start.setUTCDate(start.getUTCDate() - 29)
   const iso = (date) => date.toISOString().slice(0, 10)
   return {
     start: range === 'All time' ? '2024-01-01' : iso(start),
@@ -188,26 +189,51 @@ function reportMetric(report, ...keys) {
 
 function reportSeries(report) {
   const rows = []
+  const seen = new Set()
+  const toIsoDate = (value) => {
+    const text = String(value).trim()
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10)
+    const parsed = new Date(text)
+    return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10)
+  }
   function visit(value) {
     if (!value || typeof value !== 'object') return
     if (Array.isArray(value)) {
       for (const item of value) visit(item)
       return
     }
-    const dateValue = value.date || value.day || value.created_at || value.report_date || value.reported_date || value.timestamp || value.start_date || value.activity_date || value.record_date
+    const dateValue = value.date || value.day || value.created_at || value.report_date || value.reported_date ||
+      value.timestamp || value.start_date || value.activity_date || value.record_date || value.date_key ||
+      value.reportDate || value.activityDate
     if (dateValue) {
-      rows.push({
-        date: String(dateValue).slice(0, 10),
-        sent: number(value, 'sent', 'emails_sent', 'total_sent', 'send_count', 'emailsSent', 'email_sent', 'totalEmailsSent'),
-        opened: number(value, 'opened', 'emails_opened', 'total_opened', 'open_count', 'emailsOpened', 'totalEmailsOpened'),
-        replied: number(value, 'replied', 'replies', 'total_replied', 'reply_count', 'emailsReplied', 'totalReplies'),
-        clicked: number(value, 'clicked', 'emails_clicked', 'total_clicked', 'click_count', 'clicks', 'emailsClicked'),
-        bounced: number(value, 'bounced', 'emails_bounced', 'total_bounced', 'bounce_count', 'bounces'),
-        unsubscribed: number(value, 'unsubscribed', 'emails_unsubscribed', 'total_unsubscribed', 'unsubscribe_count', 'unsubscribes'),
-        interested: number(value, 'interested', 'total_interested', 'positive_replies'),
-      })
+      const isoDate = toIsoDate(dateValue)
+      if (isoDate && !seen.has(isoDate)) {
+        seen.add(isoDate)
+        const candidates = [value, value.funnel, value.summary, value.totals, value.analytics, value.stats]
+        const metric = (...keys) => {
+          for (const candidate of candidates) {
+            const result = number(candidate, ...keys)
+            if (result) return result
+          }
+          return 0
+        }
+        rows.push({
+          date: isoDate,
+          sent: metric('sent', 'emails_sent', 'total_sent', 'send_count', 'emailsSent', 'email_sent', 'totalEmailsSent'),
+          opened: metric('opened', 'emails_opened', 'total_opened', 'open_count', 'emailsOpened', 'totalEmailsOpened'),
+          replied: metric('replied', 'replies', 'total_replied', 'reply_count', 'emailsReplied', 'totalReplies'),
+          clicked: metric('clicked', 'emails_clicked', 'total_clicked', 'click_count', 'clicks', 'emailsClicked'),
+          bounced: metric('bounced', 'emails_bounced', 'total_bounced', 'bounce_count', 'bounces'),
+          unsubscribed: metric('unsubscribed', 'emails_unsubscribed', 'total_unsubscribed', 'unsubscribe_count', 'unsubscribes'),
+          interested: metric('interested', 'total_interested', 'positive_replies'),
+        })
+      }
     }
-    for (const child of Object.values(value)) visit(child)
+    // If this object represents a dated row, its metrics are already captured above.
+    // Do not recurse through the row again, which can add the same date twice.
+    if (!dateValue) {
+      for (const child of Object.values(value)) visit(child)
+    }
   }
   visit(report)
   return rows
@@ -254,7 +280,9 @@ async function dashboardHandler(req, res) {
           start_date: yesterday,
           end_date: yesterday,
         }).catch(() => null)
-        return [id, reportSent(report), reportSeries(report), report, reportSent(yesterdayReport)]
+        const yesterdaySeries = reportSeries(yesterdayReport)
+        const yesterdayRow = yesterdaySeries.find((row) => row.date === yesterday)
+        return [id, reportSent(report), reportSeries(report), report, yesterdayRow?.sent ?? reportSent(yesterdayReport)]
       } catch { return [id, null, [], null, null] }
     }))
     const yesterdayByCampaign = Object.fromEntries(reports.map(([id, , , , yesterdaySent]) => [id, yesterdaySent]))
@@ -274,17 +302,19 @@ async function dashboardHandler(req, res) {
       }
     }
     if (!dailyByDate.size) {
-      const rangeSent = reports.reduce((sum, [, sent]) => sum + Number(sent || 0), 0)
-      if (rangeSent > 0) dailyByDate.set(dates.end, { date: dates.end, sent: rangeSent, opened: 0, replied: 0 })
+      for (const row of reportSeries(campaignAnalytics)) {
+        const current = dailyByDate.get(row.date) || { date: row.date, sent: 0, opened: 0, replied: 0, clicked: 0, bounced: 0, unsubscribed: 0, interested: 0 }
+        current.sent += row.sent
+        current.opened += row.opened
+        current.replied += row.replied
+        current.clicked += row.clicked
+        current.bounced += row.bounced
+        current.unsubscribed += row.unsubscribed
+        current.interested += row.interested
+        dailyByDate.set(row.date, current)
+      }
     }
     const normalized = normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign, campaignReports })
-    for (const row of reportSeries(normalized.daily)) {
-      const current = dailyByDate.get(row.date) || { date: row.date, sent: 0, opened: 0, replied: 0 }
-      current.sent += row.sent
-      current.opened += row.opened
-      current.replied += row.replied
-      dailyByDate.set(row.date, current)
-    }
     let formattedDaily = [...dailyByDate.values()].sort((a, b) => a.date.localeCompare(b.date))
 
     if (range !== 'All time') {
