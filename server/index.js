@@ -97,6 +97,25 @@ function parseRpcResponse(body) {
 function number(obj, ...keys) { for (const key of keys) if (Number.isFinite(Number(obj?.[key]))) return Number(obj[key]); return 0 }
 function list(obj, ...keys) { for (const key of keys) if (Array.isArray(obj?.[key])) return obj[key]; return [] }
 
+function mailboxEmail(mailbox) {
+  if (!mailbox || typeof mailbox !== 'object') return ''
+  const value = mailbox.email || mailbox.email_address || mailbox.emailAddress || mailbox.address ||
+    mailbox.sender_email || mailbox.senderEmail || mailbox.sender || mailbox.account
+  return typeof value === 'string' ? value : value?.email || value?.email_address || value?.address || ''
+}
+
+function collectMailboxRows(value, rows = [], seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return rows
+  seen.add(value)
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectMailboxRows(item, rows, seen))
+    return rows
+  }
+  if (mailboxEmail(value)) rows.push(value)
+  for (const child of Object.values(value)) collectMailboxRows(child, rows, seen)
+  return rows
+}
+
 function nestedNumber(obj, keys) {
   if (!obj || typeof obj !== 'object') return 0
   for (const key of keys) {
@@ -144,25 +163,40 @@ function normalize(raw) {
   const linkedin = dashboard.linkedin || {}
   const funnelRows = funnel.funnel || {}
   const totals = { sent: number(emailMetrics, 'total_sent', 'sent', 'emails_sent'), opened: number(emailMetrics, 'total_opened', 'opened', 'emails_opened'), clicked: number(emailMetrics, 'total_clicked', 'clicked', 'emails_clicked'), replied: number(emailMetrics, 'total_replied', 'replied', 'replies'), interested: number(emailMetrics, 'total_interested', 'interested'), bounced: number(emailMetrics, 'total_bounced', 'bounced'), unsubscribed: number(emailMetrics, 'total_unsubscribed', 'unsubscribed'), campaigns: number(overview, 'total_campaigns', 'campaigns') || campaigns.length, active: campaigns.filter((campaign) => campaign.status === 'active').length, leads: number(overview, 'total_leads', 'leads'), connections: number(linkedin, 'total_connected', 'linkedin_connections', 'connections') }
-  const mailboxRows = [
-    ...list(health, 'accounts', 'mailboxes', 'data', 'email_accounts', 'emailAccounts'),
-    ...list(health, 'items'),
-  ]
-  const mailboxes = mailboxRows.filter((mailbox, index, rows) => mailbox && rows.findIndex((row) => (row.email || row.email_address || row.address) === (mailbox.email || mailbox.email_address || mailbox.address)) === index).map((mailbox) => ({
+  const mailboxRows = collectMailboxRows(health)
+  const mailboxes = mailboxRows.filter((mailbox, index, rows) => mailbox && rows.findIndex((row) => mailboxEmail(row) === mailboxEmail(mailbox)) === index).map((mailbox) => {
+    const warmupValue = mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? mailbox.is_warmup_enabled ??
+      (typeof mailbox.warmup === 'object' ? (mailbox.warmup.enabled ?? mailbox.warmup.active ?? mailbox.warmup.status) : mailbox.warmup) ??
+      mailbox.warm_up_enabled ?? mailbox.warmup_status
+    const warmupEnabled = warmupValue === true || warmupValue === 1 || warmupValue === 'true' ||
+      warmupValue === 'enabled' || warmupValue === 'active'
+    const dailyLimit = mailbox.daily_limit ?? mailbox.dailyLimit ?? mailbox.daily_send_limit ??
+      mailbox.dailySendingLimit ?? mailbox.daily_sending_limit ?? mailbox.dailyCapacity ??
+      mailbox.sending_limit ?? mailbox.limit
+    const sentYesterday = mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ??
+      mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? mailbox.sent_yesterday ??
+      mailbox.sentYesterday ?? mailbox.yesterday_sent ?? mailbox.yesterdaySent ??
+      nestedNumber(mailbox, ['emails_sent_yesterday', 'emailsSentYesterday', 'daily_sent_yesterday', 'dailySentYesterday', 'sent_yesterday', 'sentYesterday', 'yesterday_sent', 'yesterdaySent'])
+    const sentToday = mailbox.daily_sent ?? mailbox.dailySent ?? mailbox.emails_sent_today ??
+      mailbox.emailsSentToday ?? mailbox.sent_today ?? mailbox.sentToday ??
+      nestedNumber(mailbox, ['emails_sent_today', 'emailsSentToday', 'daily_sent', 'dailySent', 'sent_today', 'sentToday'])
+    const report = mailbox.warmup_report || mailbox.warmupReport || mailbox.health_report ||
+      mailbox.healthReport || mailbox.health || null
+    return ({
     ...mailbox,
-    email: mailbox.email || mailbox.email_address || mailbox.address,
-    dailyLimit: mailbox.daily_limit ?? mailbox.dailyLimit ?? mailbox.daily_send_limit,
-    dailySent: mailbox.daily_sent ?? mailbox.dailySent ?? mailbox.emails_sent_today ?? mailbox.emailsSentToday,
-    emailsSentYesterday: mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ?? mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? nestedNumber(mailbox, ['emails_sent_yesterday', 'emailsSentYesterday', 'daily_sent_yesterday', 'dailySentYesterday', 'sent_yesterday', 'sentYesterday']),
-    dailySentYesterday: mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ?? nestedNumber(mailbox, ['emails_sent_yesterday', 'emailsSentYesterday', 'daily_sent_yesterday', 'dailySentYesterday', 'sent_yesterday', 'sentYesterday']),
+    email: mailboxEmail(mailbox),
+    dailyLimit,
+    dailySent: sentToday,
+    emailsSentYesterday: sentYesterday,
+    dailySentYesterday: sentYesterday,
     paused: mailbox.sending_paused ?? mailbox.paused ?? mailbox.is_paused,
-    warmup: mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? (typeof mailbox.warmup === 'object' ? (mailbox.warmup.enabled ?? mailbox.warmup.active ?? mailbox.warmup.status) : mailbox.warmup) ?? mailbox.warm_up_enabled,
-    warmupEnabled: mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? mailbox.warm_up_enabled,
+    warmup: warmupEnabled,
+    warmupEnabled,
     warmupCount: number(mailbox, 'warmup_count', 'warmupCount', 'warmup_emails'),
-    dailyUsagePct: mailbox.daily_usage_pct ?? mailbox.dailyUsagePct ?? (Number(mailbox.daily_limit || mailbox.dailyLimit) ? Math.round(Number(mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ?? mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? 0) / Number(mailbox.daily_limit || mailbox.dailyLimit) * 100) : 0),
-    warmupReport: mailbox.warmup_report || mailbox.warmupReport || mailbox.health_report || mailbox.health || null,
-  }))
-  const warmupEnabledCount = mailboxes.filter((mailbox) => mailbox.warmupEnabled === true || mailbox.warmup_enabled === true).length
+    dailyUsagePct: mailbox.daily_usage_pct ?? mailbox.dailyUsagePct ?? (Number(dailyLimit) ? Math.round(Number(sentYesterday) / Number(dailyLimit) * 100) : 0),
+    warmupReport: report,
+  })})
+  const warmupEnabledCount = mailboxes.filter((mailbox) => mailbox.warmupEnabled).length
   return { source: 'Live Oppora API', updatedAt: new Date().toISOString(), totals, campaigns, mailboxes, warmup: { enabled: warmupEnabledCount, disabled: Math.max(mailboxes.length - warmupEnabledCount, 0), total: mailboxes.length }, funnel: { contacted: number(funnelRows, 'open', 'contacted', 'total_contacted'), opened: number(funnelRows, 'opened'), replied: number(funnelRows, 'in_progress', 'replied'), interested: number(funnelRows, 'interested'), opportunities: number(funnelRows, 'in_progress', 'opportunities'), won: number(funnelRows, 'won'), lost: number(funnelRows, 'lost') }, daily: list(campaignAnalytics, 'daily', 'daily_volume', 'daily_activity'), replyOutcomes: campaignAnalytics.reply_outcomes || campaignAnalytics.replyOutcomes || {} }
 }
 

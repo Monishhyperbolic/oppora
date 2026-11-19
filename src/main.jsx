@@ -127,6 +127,7 @@ function App() {
             const warmup = m.warmup ?? m.warmupEnabled ?? m.warmup_enabled ?? m.warm_up_enabled ?? m.warm_up ?? m.is_warmup_enabled
             const warmupStatus = warmup === true || warmup === 1 || warmup === 'true' || warmup === 'enabled' ? 'Warm-up on' : 'Warm-up off'
             const warmupReport = m.warmupReport
+            const warmupHealth = warmupReport?.healthScore ?? warmupReport?.health_score ?? warmupReport?.score
             return <div className="mailbox" key={email}>
               <div>
                 <span className={m.paused || m.sending_paused ? 'alert-dot' : 'ok-dot'} />
@@ -138,7 +139,7 @@ function App() {
                 <b>{sent}{limit ? ` / ${limit}` : ''}</b>
                 {limit > 0 && <div><i style={{width: `${Math.min(100, limit ? sent / limit * 100 : 0)}%`}}/></div>}
                 {limit > 0 && <small>{usagePct}% of limit</small>}
-                {warmupReport?.healthScore && <small>Warm-up health {warmupReport.healthScore}/100</small>}
+                {warmupHealth != null && warmupHealth !== '' && <small>Warm-up health {warmupHealth}/100</small>}
               </div>
             </div>
           }) : <p className="warmup-empty">No sender accounts were returned by Oppora.</p>}
