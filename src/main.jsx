@@ -126,7 +126,7 @@ function App() {
             const hasSentYesterday = sentYesterdayRaw !== null && sentYesterdayRaw !== undefined && sentYesterdayRaw !== ''
             const sentYesterday = hasSentYesterday ? Number(sentYesterdayRaw) : null
             const sentToday = Number(m.dailySent ?? m.daily_sent ?? m.emailsSentToday ?? m.emails_sent_today ?? m.sentToday ?? m.sent_today ?? 0)
-            const usagePct = limit ? Math.round(sentToday / limit * 100) : 0
+            const usagePct = limit && sentYesterday !== null ? Math.round(sentYesterday / limit * 100) : 0
             const warmup = m.warmup ?? m.warmupEnabled ?? m.warmup_enabled ?? m.warm_up_enabled ?? m.warm_up ?? m.is_warmup_enabled
             const warmupStatus = warmup === true || warmup === 1 || warmup === 'true' || warmup === 'enabled' ? 'Warm-up on' : 'Warm-up off'
             const warmupReport = m.warmupReport
@@ -138,11 +138,11 @@ function App() {
                 <small>{warmupStatus} · {m.connected === false ? 'Disconnected' : m.connected === true ? 'Connected' : 'Connection status unavailable'}</small>
               </div>
               <div className="usage">
-                <span>Sent today</span>
-                <b>{sentToday}{limit ? ` / ${limit}` : ''}</b>
-                {limit > 0 && <div><i style={{width: `${Math.min(100, limit ? sentToday / limit * 100 : 0)}%`}}/></div>}
-                {limit > 0 && <small>{usagePct}% of limit</small>}
-                <small>Yesterday: {sentYesterday !== null ? sentYesterday : 'Unavailable from account API'}</small>
+                <span>Sent yesterday</span>
+                <b>{sentYesterday !== null ? sentYesterday : 'Unavailable'}{limit ? ` / ${limit}` : ''}</b>
+                {limit > 0 && sentYesterday !== null && <div><i style={{width: `${Math.min(100, limit ? sentYesterday / limit * 100 : 0)}%`}}/></div>}
+                {limit > 0 && sentYesterday !== null && <small>{usagePct}% of limit</small>}
+                <small>Today: {sentToday}</small>
                 {warmupHealth != null && warmupHealth !== '' && <small>Warm-up health {warmupHealth}/100</small>}
               </div>
             </div>

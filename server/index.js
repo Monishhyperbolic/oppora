@@ -148,8 +148,42 @@ function nestedNumberOrNull(obj, keys, seen = new Set()) {
   return null
 }
 
+function senderEmail(sender) {
+  if (!sender || typeof sender !== 'object') return ''
+  return mailboxEmail(sender) ||
+    (typeof sender.mailbox === 'string' ? sender.mailbox : mailboxEmail(sender.mailbox))
+}
+
+function senderId(sender) {
+  if (!sender || typeof sender !== 'object') return ''
+  const value = sender.id ?? sender.mailbox_id ?? sender.mailboxId ?? sender.email_account_id ?? sender.emailAccountId ??
+    sender.account_id ?? sender.accountId
+  return value == null ? '' : String(value)
+}
+
+function collectSenderSentRows(value, rows = [], seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return rows
+  seen.add(value)
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectSenderSentRows(item, rows, seen))
+    return rows
+  }
+  const email = senderEmail(value)
+  const id = senderId(value)
+  if (email || id) {
+    const sent = nestedNumberOrNull(value, [
+      'sent', 'emails_sent', 'total_sent', 'send_count', 'emailsSent', 'email_sent',
+      'totalEmailsSent', 'sent_count', 'emailsSentCount',
+    ])
+    if (sent !== null) rows.push({ email, id, sent })
+  }
+  for (const child of Object.values(value)) collectSenderSentRows(child, rows, seen)
+  return rows
+}
+
 function normalize(raw) {
   const dashboard = raw.dashboard || {}, campaignAnalytics = raw.campaignAnalytics || {}, funnel = raw.funnel || {}, health = raw.health || {}
+  const yesterdayByMailbox = raw.yesterdayByMailbox || { byEmail: {}, byId: {} }
   const rawCampaigns = list(campaignAnalytics, 'campaigns', 'data', 'items').length
     ? list(campaignAnalytics, 'campaigns', 'data', 'items')
     : list(dashboard, 'top_campaigns')
@@ -194,6 +228,14 @@ function normalize(raw) {
       mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? mailbox.sent_yesterday ??
       mailbox.sentYesterday ?? mailbox.yesterday_sent ?? mailbox.yesterdaySent ??
       nestedNumberOrNull(mailbox, ['emails_sent_yesterday', 'emailsSentYesterday', 'daily_sent_yesterday', 'dailySentYesterday', 'sent_yesterday', 'sentYesterday', 'yesterday_sent', 'yesterdaySent'])
+    const emailKey = mailboxEmail(mailbox).trim().toLowerCase()
+    const mailboxId = senderId(mailbox)
+    const campaignSentYesterday = Object.prototype.hasOwnProperty.call(yesterdayByMailbox.byEmail, emailKey)
+      ? yesterdayByMailbox.byEmail[emailKey]
+      : Object.prototype.hasOwnProperty.call(yesterdayByMailbox.byId, mailboxId)
+        ? yesterdayByMailbox.byId[mailboxId]
+        : undefined
+    const attributedSentYesterday = campaignSentYesterday !== undefined ? campaignSentYesterday : sentYesterday
     const sentToday = mailbox.daily_sent ?? mailbox.dailySent ?? mailbox.emails_sent_today ??
       mailbox.emailsSentToday ?? mailbox.sent_today ?? mailbox.sentToday ??
       nestedNumber(mailbox, ['emails_sent_today', 'emailsSentToday', 'daily_sent', 'dailySent', 'sent_today', 'sentToday'])
@@ -204,8 +246,8 @@ function normalize(raw) {
     email: mailboxEmail(mailbox),
     dailyLimit,
     dailySent: sentToday,
-    emailsSentYesterday: sentYesterday,
-    dailySentYesterday: sentYesterday,
+    emailsSentYesterday: attributedSentYesterday,
+    dailySentYesterday: attributedSentYesterday,
     paused: mailbox.sending_paused ?? mailbox.paused ?? mailbox.is_paused,
     warmup: warmupEnabled,
     warmupEnabled,
@@ -353,10 +395,22 @@ async function dashboardHandler(req, res) {
         }).catch(() => null)
         const yesterdaySeries = reportSeries(yesterdayReport)
         const yesterdayRow = yesterdaySeries.find((row) => row.date === yesterday)
-        return [id, reportSent(report), reportSeries(report), report, yesterdayRow?.sent ?? reportSent(yesterdayReport)]
-      } catch { return [id, null, [], null, null] }
+        return [id, reportSent(report), reportSeries(report), report, yesterdayRow?.sent ?? reportSent(yesterdayReport), collectSenderSentRows(yesterdayReport)]
+      } catch { return [id, null, [], null, null, []] }
     }))
     const yesterdayByCampaign = Object.fromEntries(reports.map(([id, , , , yesterdaySent]) => [id, yesterdaySent]))
+    const yesterdayByMailbox = { byEmail: {}, byId: {} }
+    for (const [, , , , , senderRows] of reports) {
+      for (const sender of senderRows || []) {
+        if (sender.email) {
+          const email = sender.email.trim().toLowerCase()
+          yesterdayByMailbox.byEmail[email] = (yesterdayByMailbox.byEmail[email] || 0) + sender.sent
+        }
+        if (sender.id) {
+          yesterdayByMailbox.byId[sender.id] = (yesterdayByMailbox.byId[sender.id] || 0) + sender.sent
+        }
+      }
+    }
     const campaignReports = Object.fromEntries(reports.filter(([, , , report]) => report).map(([id, , , report]) => [String(id), report]))
     const dailyByDate = new Map()
     for (const [, , series] of reports) {
@@ -398,7 +452,7 @@ async function dashboardHandler(req, res) {
         dailyByDate.set(row.date, current)
       }
     }
-    const normalized = normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign, campaignReports })
+    const normalized = normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign, yesterdayByMailbox, campaignReports })
     let formattedDaily = [...dailyByDate.values()].sort((a, b) => a.date.localeCompare(b.date))
 
     if (range !== 'All time') {
