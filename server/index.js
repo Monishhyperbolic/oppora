@@ -37,7 +37,7 @@ const sample = {
   mailboxes: [
     ['reach@weaveandweavers.com', true, true, 30, 0, false], ['wholesale@weaveandweavers.com', true, true, 30, 0, false],
     ['exports@weaveandweavers.com', true, true, 30, 0, false], ['hello@weaveandweavers.com', true, true, 40, 40, false],
-  ].map(([email, connected, warmup, dailyLimit, dailySent, paused]) => ({ email, connected, warmup, dailyLimit, dailySent, paused, warmupReport: email === 'reach@weaveandweavers.com' ? { healthScore: 97, risk: 'Excellent · low risk', spf: 'Pass', dkim: 'Pass', dmarc: 'Pass', blacklists: 'Clean · 2 checked', sent: 448, inbox: 427, replied: 128, rescued: 18, deliverability: 95, strategy: 'Progressive', day: 33, totalDays: 45 } : null })),
+  ].map(([email, connected, warmup, dailyLimit, dailySent, paused]) => ({ email, connected, warmup, dailyLimit, dailySent, emailsSentYesterday: dailySent, paused, warmupReport: email === 'reach@weaveandweavers.com' ? { healthScore: 97, risk: 'Excellent · low risk', spf: 'Pass', dkim: 'Pass', dmarc: 'Pass', blacklists: 'Clean · 2 checked', sent: 448, inbox: 427, replied: 128, rescued: 18, deliverability: 95, strategy: 'Progressive', day: 33, totalDays: 45 } : null })),
   funnel: { contacted: 400, opened: 96, replied: 5, interested: 0, opportunities: 0, won: 0, lost: 0 },
   daily: Array.from({ length: 30 }, (_, index) => {
     const date = new Date(2026, 9, 20 + index)
@@ -138,11 +138,12 @@ function normalize(raw) {
     dailyLimit: mailbox.daily_limit ?? mailbox.dailyLimit ?? mailbox.daily_send_limit,
     dailySent: mailbox.daily_sent ?? mailbox.dailySent ?? mailbox.emails_sent_today ?? mailbox.emailsSentToday,
     emailsSentYesterday: mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ?? mailbox.daily_sent_yesterday,
+    dailySentYesterday: mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday,
     paused: mailbox.sending_paused ?? mailbox.paused ?? mailbox.is_paused,
     warmup: mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? (typeof mailbox.warmup === 'object' ? (mailbox.warmup.enabled ?? mailbox.warmup.active ?? mailbox.warmup.status) : mailbox.warmup) ?? mailbox.warm_up_enabled,
     warmupEnabled: mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? mailbox.warm_up_enabled,
     warmupCount: number(mailbox, 'warmup_count', 'warmupCount', 'warmup_emails'),
-    dailyUsagePct: mailbox.daily_usage_pct ?? mailbox.dailyUsagePct ?? (Number(mailbox.daily_limit || mailbox.dailyLimit) ? Math.round(Number(mailbox.daily_sent || mailbox.dailySent || 0) / Number(mailbox.daily_limit || mailbox.dailyLimit) * 100) : 0),
+    dailyUsagePct: mailbox.daily_usage_pct ?? mailbox.dailyUsagePct ?? (Number(mailbox.daily_limit || mailbox.dailyLimit) ? Math.round(Number(mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ?? mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? 0) / Number(mailbox.daily_limit || mailbox.dailyLimit) * 100) : 0),
     warmupReport: mailbox.warmup_report || mailbox.warmupReport || mailbox.health_report || mailbox.health || null,
   }))
   const warmupEnabledCount = mailboxes.filter((mailbox) => mailbox.warmupEnabled === true || mailbox.warmup_enabled === true).length
