@@ -372,8 +372,27 @@ async function dashboardHandler(req, res) {
           : row.date,
       }))
     }
+    const senderSentYesterday = Object.values(yesterdayByCampaign).reduce((total, sent) => total + Number(sent || 0), 0)
+    const senderSentToday = normalized.mailboxes.reduce((total, mailbox) => total + Number(mailbox.dailySent ?? mailbox.daily_sent ?? 0), 0)
+    if (!formattedDaily.some((row) => Number(row.sent || 0) > 0)) {
+      if (range !== 'All time') {
+        const yesterday = previousCalendarDay()
+        const today = new Date().toISOString().slice(0, 10)
+        const yesterdayLabel = new Date(`${yesterday}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+        const todayLabel = new Date(`${today}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+        for (const row of formattedDaily) {
+          if (row.date === yesterdayLabel) row.sent = senderSentYesterday
+          if (row.date === todayLabel) row.sent = senderSentToday
+        }
+      } else if (senderSentYesterday || senderSentToday) {
+        formattedDaily = [
+          { date: new Date(`${previousCalendarDay()}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }), sent: senderSentYesterday, opened: 0, replied: 0 },
+          { date: new Date(`${new Date().toISOString().slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }), sent: senderSentToday, opened: 0, replied: 0 },
+        ]
+      }
+    }
     if (formattedDaily.length) normalized.daily = formattedDaily
-    res.json({ ...normalized, mode: 'live', range })
+    res.json({ ...normalized, senderSentYesterday, senderSentToday, mode: 'live', range })
   } catch (error) { res.status(502).json({ error: error.message }) }
 }
 

@@ -84,10 +84,13 @@ function App() {
   }
   if (loading) return <div className="loading"><LoaderCircle className="spin" /> Loading Oppora metrics…</div>
   if (error) return <main className="error"><h1>Couldn’t connect to Oppora</h1><p>{error}</p><button onClick={load}>Try again</button><p className="hint">Add <code>OPPORA_API_KEY</code> to <code>.env</code>, then restart the server.</p></main>
-  const t = data.totals, mailboxCapacity = (data.mailboxes || []).reduce((a, m) => a + Number(m.dailyLimit || m.daily_limit || 0), 0), mailboxSentYesterday = (data.mailboxes || []).reduce((a, m) => {
+  const t = data.totals
+  const mailboxCapacity = (data.mailboxes || []).reduce((a, m) => a + Number(m.dailyLimit || m.daily_limit || 0), 0)
+  const mailboxSentYesterdayFromAccounts = (data.mailboxes || []).reduce((a, m) => {
     const sent = m.emailsSentYesterday ?? m.emails_sent_yesterday ?? m.dailySentYesterday ?? m.daily_sent_yesterday ?? 0
     return a + Number(sent)
   }, 0)
+  const mailboxSentYesterday = Number(data.senderSentYesterday ?? mailboxSentYesterdayFromAccounts)
   const delivery = [{ name: 'Opened', value: t.opened }, { name: 'Not opened', value: Math.max(t.sent - t.opened - t.bounced, 0) }, { name: 'Bounced', value: t.bounced }]
   const chartData = data.daily || []
   const campaignChartData = (data.campaigns || []).filter(c => c.sent || c.opened || c.replied || c.clicked || c.bounced)
