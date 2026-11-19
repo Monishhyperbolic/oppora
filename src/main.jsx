@@ -122,7 +122,9 @@ function App() {
           {(data.mailboxes || []).length ? (data.mailboxes || []).map(m => {
             const email = m.email || m.email_address || m.address || 'Unknown mailbox'
             const limit = Number(m.dailyLimit ?? m.daily_limit ?? 0)
-            const sentYesterday = Number(m.emailsSentYesterday ?? m.emails_sent_yesterday ?? m.dailySentYesterday ?? m.daily_sent_yesterday ?? 0)
+            const sentYesterdayRaw = m.emailsSentYesterday ?? m.emails_sent_yesterday ?? m.dailySentYesterday ?? m.daily_sent_yesterday
+            const hasSentYesterday = sentYesterdayRaw !== null && sentYesterdayRaw !== undefined && sentYesterdayRaw !== ''
+            const sentYesterday = hasSentYesterday ? Number(sentYesterdayRaw) : null
             const sentToday = Number(m.dailySent ?? m.daily_sent ?? m.emailsSentToday ?? m.emails_sent_today ?? m.sentToday ?? m.sent_today ?? 0)
             const usagePct = limit ? Math.round(sentToday / limit * 100) : 0
             const warmup = m.warmup ?? m.warmupEnabled ?? m.warmup_enabled ?? m.warm_up_enabled ?? m.warm_up ?? m.is_warmup_enabled
@@ -140,7 +142,7 @@ function App() {
                 <b>{sentToday}{limit ? ` / ${limit}` : ''}</b>
                 {limit > 0 && <div><i style={{width: `${Math.min(100, limit ? sentToday / limit * 100 : 0)}%`}}/></div>}
                 {limit > 0 && <small>{usagePct}% of limit</small>}
-                <small>Yesterday: {sentYesterday}</small>
+                <small>Yesterday: {sentYesterday !== null ? sentYesterday : 'Unavailable from account API'}</small>
                 {warmupHealth != null && warmupHealth !== '' && <small>Warm-up health {warmupHealth}/100</small>}
               </div>
             </div>

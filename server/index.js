@@ -131,6 +131,23 @@ function nestedNumber(obj, keys) {
   return 0
 }
 
+function nestedNumberOrNull(obj, keys, seen = new Set()) {
+  if (!obj || typeof obj !== 'object' || seen.has(obj)) return null
+  seen.add(obj)
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(obj, key) && Number.isFinite(Number(obj[key]))) {
+      return Number(obj[key])
+    }
+  }
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === 'object') {
+      const nested = nestedNumberOrNull(value, keys, seen)
+      if (nested !== null) return nested
+    }
+  }
+  return null
+}
+
 function normalize(raw) {
   const dashboard = raw.dashboard || {}, campaignAnalytics = raw.campaignAnalytics || {}, funnel = raw.funnel || {}, health = raw.health || {}
   const rawCampaigns = list(campaignAnalytics, 'campaigns', 'data', 'items').length
@@ -176,7 +193,7 @@ function normalize(raw) {
     const sentYesterday = mailbox.emails_sent_yesterday ?? mailbox.emailsSentYesterday ??
       mailbox.daily_sent_yesterday ?? mailbox.dailySentYesterday ?? mailbox.sent_yesterday ??
       mailbox.sentYesterday ?? mailbox.yesterday_sent ?? mailbox.yesterdaySent ??
-      nestedNumber(mailbox, ['emails_sent_yesterday', 'emailsSentYesterday', 'daily_sent_yesterday', 'dailySentYesterday', 'sent_yesterday', 'sentYesterday', 'yesterday_sent', 'yesterdaySent'])
+      nestedNumberOrNull(mailbox, ['emails_sent_yesterday', 'emailsSentYesterday', 'daily_sent_yesterday', 'dailySentYesterday', 'sent_yesterday', 'sentYesterday', 'yesterday_sent', 'yesterdaySent'])
     const sentToday = mailbox.daily_sent ?? mailbox.dailySent ?? mailbox.emails_sent_today ??
       mailbox.emailsSentToday ?? mailbox.sent_today ?? mailbox.sentToday ??
       nestedNumber(mailbox, ['emails_sent_today', 'emailsSentToday', 'daily_sent', 'dailySent', 'sent_today', 'sentToday'])
