@@ -102,22 +102,24 @@ function normalize(raw) {
     ? list(campaignAnalytics, 'campaigns', 'data', 'items')
     : list(dashboard, 'top_campaigns')
   const yesterdayByCampaign = raw.yesterdayByCampaign || {}
+  const campaignReports = raw.campaignReports || {}
   const campaignsById = new Map(rawCampaigns.map((c) => {
     const id = c.id || c.campaign_id
     return [String(id), c]
   }).filter(([id]) => id && id !== 'undefined'))
   const campaigns = campaignDirectory.map(([directoryName, id, directoryStatus]) => {
     const c = campaignsById.get(String(id)) || {}
+    const report = campaignReports[String(id)] || {}
     return {
       name: c.name || c.campaign_name || directoryName,
       id,
       status: c.status || directoryStatus,
-      sent: number(c, 'sent', 'emails_sent', 'total_sent'),
-      opened: number(c, 'opened', 'emails_opened', 'total_opened'),
-      clicked: number(c, 'clicked', 'emails_clicked', 'total_clicked'),
-      replied: number(c, 'replied', 'replies', 'total_replied'),
-      bounced: number(c, 'bounced', 'total_bounced'),
-      unsubscribed: number(c, 'unsubscribed', 'total_unsubscribed'),
+      sent: number(c, 'sent', 'emails_sent', 'total_sent') || reportSent(report),
+      opened: number(c, 'opened', 'emails_opened', 'total_opened') || reportMetric(report, 'opened', 'emails_opened', 'total_opened'),
+      clicked: number(c, 'clicked', 'emails_clicked', 'total_clicked') || reportMetric(report, 'clicked', 'emails_clicked', 'total_clicked'),
+      replied: number(c, 'replied', 'replies', 'total_replied') || reportMetric(report, 'replied', 'replies', 'total_replied'),
+      bounced: number(c, 'bounced', 'total_bounced') || reportMetric(report, 'bounced', 'emails_bounced', 'total_bounced'),
+      unsubscribed: number(c, 'unsubscribed', 'total_unsubscribed') || reportMetric(report, 'unsubscribed', 'emails_unsubscribed', 'total_unsubscribed'),
       emailsSentYesterday: yesterdayByCampaign[id],
     }
   })
@@ -139,9 +141,12 @@ function normalize(raw) {
     paused: mailbox.sending_paused ?? mailbox.paused ?? mailbox.is_paused,
     warmup: mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? (typeof mailbox.warmup === 'object' ? (mailbox.warmup.enabled ?? mailbox.warmup.active ?? mailbox.warmup.status) : mailbox.warmup) ?? mailbox.warm_up_enabled,
     warmupEnabled: mailbox.warmup_enabled ?? mailbox.warmupEnabled ?? mailbox.warm_up_enabled,
+    warmupCount: number(mailbox, 'warmup_count', 'warmupCount', 'warmup_emails'),
+    dailyUsagePct: mailbox.daily_usage_pct ?? mailbox.dailyUsagePct ?? (Number(mailbox.daily_limit || mailbox.dailyLimit) ? Math.round(Number(mailbox.daily_sent || mailbox.dailySent || 0) / Number(mailbox.daily_limit || mailbox.dailyLimit) * 100) : 0),
     warmupReport: mailbox.warmup_report || mailbox.warmupReport || mailbox.health_report || mailbox.health || null,
   }))
-  return { source: 'Live Oppora API', updatedAt: new Date().toISOString(), totals, campaigns, mailboxes, funnel: { contacted: number(funnelRows, 'open', 'contacted', 'total_contacted'), opened: number(funnelRows, 'opened'), replied: number(funnelRows, 'in_progress', 'replied'), interested: number(funnelRows, 'interested'), opportunities: number(funnelRows, 'in_progress', 'opportunities'), won: number(funnelRows, 'won'), lost: number(funnelRows, 'lost') }, daily: list(campaignAnalytics, 'daily', 'daily_volume', 'daily_activity'), replyOutcomes: campaignAnalytics.reply_outcomes || campaignAnalytics.replyOutcomes || {} }
+  const warmupEnabledCount = mailboxes.filter((mailbox) => mailbox.warmupEnabled === true || mailbox.warmup_enabled === true).length
+  return { source: 'Live Oppora API', updatedAt: new Date().toISOString(), totals, campaigns, mailboxes, warmup: { enabled: warmupEnabledCount, disabled: Math.max(mailboxes.length - warmupEnabledCount, 0), total: mailboxes.length }, funnel: { contacted: number(funnelRows, 'open', 'contacted', 'total_contacted'), opened: number(funnelRows, 'opened'), replied: number(funnelRows, 'in_progress', 'replied'), interested: number(funnelRows, 'interested'), opportunities: number(funnelRows, 'in_progress', 'opportunities'), won: number(funnelRows, 'won'), lost: number(funnelRows, 'lost') }, daily: list(campaignAnalytics, 'daily', 'daily_volume', 'daily_activity'), replyOutcomes: campaignAnalytics.reply_outcomes || campaignAnalytics.replyOutcomes || {} }
 }
 
 function reportSent(report) {
@@ -196,6 +201,10 @@ function reportSeries(report) {
         sent: number(value, 'sent', 'emails_sent', 'total_sent', 'send_count', 'emailsSent', 'email_sent', 'totalEmailsSent'),
         opened: number(value, 'opened', 'emails_opened', 'total_opened', 'open_count', 'emailsOpened', 'totalEmailsOpened'),
         replied: number(value, 'replied', 'replies', 'total_replied', 'reply_count', 'emailsReplied', 'totalReplies'),
+        clicked: number(value, 'clicked', 'emails_clicked', 'total_clicked', 'click_count', 'clicks', 'emailsClicked'),
+        bounced: number(value, 'bounced', 'emails_bounced', 'total_bounced', 'bounce_count', 'bounces'),
+        unsubscribed: number(value, 'unsubscribed', 'emails_unsubscribed', 'total_unsubscribed', 'unsubscribe_count', 'unsubscribes'),
+        interested: number(value, 'interested', 'total_interested', 'positive_replies'),
       })
     }
     for (const child of Object.values(value)) visit(child)
@@ -239,17 +248,22 @@ async function dashboardHandler(req, res) {
           start_date: range === 'All time' ? dates.start : dates.start,
           end_date: dates.end,
         })
-        return [id, reportSent(report), reportSeries(report)]
-      } catch { return [id, null, []] }
+        return [id, reportSent(report), reportSeries(report), report]
+      } catch { return [id, null, [], null] }
     }))
     const yesterdayByCampaign = Object.fromEntries(reports.map(([id, sent]) => [id, sent]))
+    const campaignReports = Object.fromEntries(reports.filter(([, , , report]) => report).map(([id, , , report]) => [String(id), report]))
     const dailyByDate = new Map()
     for (const [, , series] of reports) {
       for (const row of series) {
-        const current = dailyByDate.get(row.date) || { date: row.date, sent: 0, opened: 0, replied: 0 }
+        const current = dailyByDate.get(row.date) || { date: row.date, sent: 0, opened: 0, replied: 0, clicked: 0, bounced: 0, unsubscribed: 0, interested: 0 }
         current.sent += row.sent
         current.opened += row.opened
         current.replied += row.replied
+        current.clicked += row.clicked
+        current.bounced += row.bounced
+        current.unsubscribed += row.unsubscribed
+        current.interested += row.interested
         dailyByDate.set(row.date, current)
       }
     }
@@ -257,7 +271,7 @@ async function dashboardHandler(req, res) {
       const rangeSent = reports.reduce((sum, [, sent]) => sum + Number(sent || 0), 0)
       if (rangeSent > 0) dailyByDate.set(dates.end, { date: dates.end, sent: rangeSent, opened: 0, replied: 0 })
     }
-    const normalized = normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign })
+    const normalized = normalize({ dashboard, campaignAnalytics, funnel, health, yesterdayByCampaign, campaignReports })
     for (const row of reportSeries(normalized.daily)) {
       const current = dailyByDate.get(row.date) || { date: row.date, sent: 0, opened: 0, replied: 0 }
       current.sent += row.sent
