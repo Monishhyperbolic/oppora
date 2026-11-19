@@ -100,8 +100,11 @@ function list(obj, ...keys) { for (const key of keys) if (Array.isArray(obj?.[ke
 function mailboxEmail(mailbox) {
   if (!mailbox || typeof mailbox !== 'object') return ''
   const value = mailbox.email || mailbox.email_address || mailbox.emailAddress || mailbox.address ||
-    mailbox.sender_email || mailbox.senderEmail || mailbox.sender || mailbox.account
-  return typeof value === 'string' ? value : value?.email || value?.email_address || value?.address || ''
+    mailbox.sender_email || mailbox.senderEmail || mailbox.from_email || mailbox.fromEmail ||
+    mailbox.sender_address || mailbox.senderAddress || mailbox.mailbox_email || mailbox.mailboxEmail ||
+    mailbox.account_email || mailbox.accountEmail || mailbox.sender || mailbox.account || mailbox.mailbox
+  return typeof value === 'string' ? value : value?.email || value?.email_address || value?.emailAddress ||
+    value?.address || value?.sender_email || value?.from_email || ''
 }
 
 function collectMailboxRows(value, rows = [], seen = new Set()) {
@@ -157,7 +160,7 @@ function senderEmail(sender) {
 function senderId(sender) {
   if (!sender || typeof sender !== 'object') return ''
   const value = sender.id ?? sender.mailbox_id ?? sender.mailboxId ?? sender.email_account_id ?? sender.emailAccountId ??
-    sender.account_id ?? sender.accountId
+    sender.account_id ?? sender.accountId ?? sender.sender_id ?? sender.senderId
   return value == null ? '' : String(value)
 }
 
@@ -256,7 +259,7 @@ function normalize(raw) {
     warmupReport: report,
   })})
   const warmupEnabledCount = mailboxes.filter((mailbox) => mailbox.warmupEnabled).length
-  return { source: 'Live Oppora API', updatedAt: new Date().toISOString(), totals, campaigns, mailboxes, warmup: { enabled: warmupEnabledCount, disabled: Math.max(mailboxes.length - warmupEnabledCount, 0), total: mailboxes.length }, funnel: { contacted: number(funnelRows, 'open', 'contacted', 'total_contacted'), opened: number(funnelRows, 'opened'), replied: number(funnelRows, 'in_progress', 'replied'), interested: number(funnelRows, 'interested'), opportunities: number(funnelRows, 'in_progress', 'opportunities'), won: number(funnelRows, 'won'), lost: number(funnelRows, 'lost') }, daily: list(campaignAnalytics, 'daily', 'daily_volume', 'daily_activity'), replyOutcomes: campaignAnalytics.reply_outcomes || campaignAnalytics.replyOutcomes || {} }
+  return { source: 'Live Oppora API', updatedAt: new Date().toISOString(), totals, campaigns, mailboxes, senderAttribution: yesterdayByMailbox, warmup: { enabled: warmupEnabledCount, disabled: Math.max(mailboxes.length - warmupEnabledCount, 0), total: mailboxes.length }, funnel: { contacted: number(funnelRows, 'open', 'contacted', 'total_contacted'), opened: number(funnelRows, 'opened'), replied: number(funnelRows, 'in_progress', 'replied'), interested: number(funnelRows, 'interested'), opportunities: number(funnelRows, 'in_progress', 'opportunities'), won: number(funnelRows, 'won'), lost: number(funnelRows, 'lost') }, daily: list(campaignAnalytics, 'daily', 'daily_volume', 'daily_activity'), replyOutcomes: campaignAnalytics.reply_outcomes || campaignAnalytics.replyOutcomes || {} }
 }
 
 function reportSent(report) {
